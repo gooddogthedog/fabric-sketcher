@@ -17,6 +17,7 @@ import { ProjectWriteQueue } from "./writeQueue";
 
 type SnapshotIndexEntry = Readonly<{
   generation: number;
+  operationSequence: number;
   path: string;
 }>;
 
@@ -105,12 +106,23 @@ export class MemoryProjectRepository implements ProjectRepository {
     if (!record) {
       throw new Error(`Project ${projectId} does not exist.`);
     }
+    const latestSequence =
+      record.operations.at(-1)?.sequence ??
+      record.initialDocument.operationSequence;
     for (const snapshot of [...record.snapshots].reverse()) {
       try {
         const base = decodeDocumentSnapshot(
           await this.#snapshotFiles.read(snapshot.path),
           projectId,
         );
+        if (
+          base.operationSequence !== snapshot.operationSequence ||
+          base.operationSequence > latestSequence
+        ) {
+          throw new Error(
+            `Invalid snapshot sequence for project ${projectId}.`,
+          );
+        }
         return record.operations
           .filter((operation) => operation.sequence > base.operationSequence)
           .reduce(documentReducer, base);
@@ -197,7 +209,11 @@ export class MemoryProjectRepository implements ProjectRepository {
           { cause },
         );
       }
-      record.snapshots.push({ generation, path });
+      record.snapshots.push({
+        generation,
+        operationSequence: durableDocument.operationSequence,
+        path,
+      });
       const expired = record.snapshots.splice(
         0,
         Math.max(0, record.snapshots.length - 2),
