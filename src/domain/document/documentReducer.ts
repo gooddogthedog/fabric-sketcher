@@ -23,6 +23,12 @@ export class DocumentVisibilityError extends Error {
   }
 }
 
+/**
+ * Replays durable document state. Committed stroke IDs remain in `strokes`, so
+ * duplicate committed strokes are idempotent here. Visibility-operation IDs
+ * are intentionally not retained by `DesignDocument`; the operation journal's
+ * unique `operationId` index enforces general append idempotence.
+ */
 export function documentReducer(
   document: DesignDocument,
   operation: DocumentOperation,
@@ -55,7 +61,9 @@ export function documentReducer(
         ? document.hiddenStrokeIds.filter(
             (operationId) => operationId !== operation.targetOperationId,
           )
-        : [...document.hiddenStrokeIds, operation.targetOperationId],
+        : document.hiddenStrokeIds.includes(operation.targetOperationId)
+          ? document.hiddenStrokeIds
+          : [...document.hiddenStrokeIds, operation.targetOperationId],
     };
   }
 

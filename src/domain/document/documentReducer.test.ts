@@ -174,6 +174,41 @@ describe("documentReducer", () => {
     expect(restoredDocument.operationSequence).toBe(3);
   });
 
+  it("keeps hidden stroke IDs canonical for distinct repeated visibility operations", () => {
+    const committedDocument = documentReducer(
+      createDocument({ projectId: "project-123", title: "Untitled sketch" }),
+      stroke(),
+    );
+    const hiddenDocument = documentReducer(committedDocument, visibility());
+    const stillHiddenDocument = documentReducer(
+      hiddenDocument,
+      visibility({ operationId: "visibility-2", sequence: 3 }),
+    );
+
+    expect(stillHiddenDocument.hiddenStrokeIds).toEqual(["stroke-1"]);
+    expect(stillHiddenDocument.operationSequence).toBe(3);
+
+    const visibleDocument = documentReducer(
+      stillHiddenDocument,
+      visibility({
+        operationId: "visibility-3",
+        sequence: 4,
+        visible: true,
+      }),
+    );
+    const stillVisibleDocument = documentReducer(
+      visibleDocument,
+      visibility({
+        operationId: "visibility-4",
+        sequence: 5,
+        visible: true,
+      }),
+    );
+
+    expect(stillVisibleDocument.hiddenStrokeIds).toEqual([]);
+    expect(stillVisibleDocument.operationSequence).toBe(5);
+  });
+
   it("rejects a visibility operation for an unknown stroke", () => {
     const document = createDocument({
       projectId: "project-123",

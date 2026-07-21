@@ -309,7 +309,7 @@ Tests must prove:
 - A new document is A4 portrait at 300 DPI: 2480 × 3508.
 - The default warm-paper background and a stable initial paint-layer ID are set.
 - Committing a stroke appends it immutably and advances `operationSequence` exactly once.
-- Duplicate `operationId` replay is idempotent.
+- Duplicate committed-stroke `operationId` replay is idempotent in the reducer. `DesignDocument` does not retain visibility-operation IDs; Task 9's unique journal `operationId` index enforces general `DocumentOperation` append idempotence, including visibility operations.
 - A sequence gap throws `DocumentSequenceError` instead of silently corrupting history.
 - Empty or single-sample strokes are rejected.
 - A visibility operation hides or restores its target stroke without deleting it.
@@ -319,7 +319,7 @@ Run `pnpm test -- src/domain/document`. Expected: failures for missing implement
 
 ### Step 3: Implement pure creation and reduction
 
-`documentReducer(document, operation: DocumentOperation)` must have no clock, random, browser, or storage imports. IDs, timestamps, and sequence numbers are assigned by the caller so journal replay is deterministic. Undo emits `stroke.visibility-set` with `visible: false`; redo emits the inverse operation, preserving append-only history.
+`documentReducer(document, operation: DocumentOperation)` must have no clock, random, browser, or storage imports. IDs, timestamps, and sequence numbers are assigned by the caller so journal replay is deterministic. The reducer recognizes duplicate `stroke.committed` IDs from persisted `strokes`; it deliberately does not retain visibility-operation IDs in `DesignDocument`. Task 9's journal unique `operationId` index enforces general `DocumentOperation` append idempotence, including visibility operations. Undo emits `stroke.visibility-set` with `visible: false`; redo emits the inverse operation, preserving append-only history.
 
 ### Step 4: Verify and commit
 
@@ -647,7 +647,7 @@ Use `fake-indexeddb/auto` for IndexedDB. Provide a small fake OPFS directory ada
 
 - Create, list, load, and title ordering by `updatedAt`.
 - Append and replay operations in sequence.
-- Duplicate operation append is idempotent.
+- Duplicate `DocumentOperation` append is idempotent, including visibility operations; enforce this with the unique journal `operationId` index.
 - Sequence gaps reject the write transaction.
 - Load uses the latest valid snapshot, then replays only later journal records.
 - A corrupt latest snapshot falls back to the prior generation.
@@ -660,7 +660,7 @@ Use `fake-indexeddb/auto` for IndexedDB. Provide a small fake OPFS directory ada
 Stores:
 
 - `projects`, keyed by `projectId`.
-- `operations`, keyed by `[projectId, sequence]`, with a unique `operationId` index.
+- `operations`, keyed by `[projectId, sequence]`, with a unique `operationId` index. This index is required to enforce general `DocumentOperation` append idempotence, including visibility operations.
 - `snapshotIndex`, keyed by `[projectId, generation]`.
 - `settings`, keyed by name.
 
