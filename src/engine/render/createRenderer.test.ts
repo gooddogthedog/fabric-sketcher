@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { Canvas2DRenderer } from "./Canvas2DRenderer";
 import { WebGL2Renderer } from "./WebGL2Renderer";
-import { createRenderer, type RendererStatus } from "./createRenderer";
+import {
+  createRenderer,
+  RendererInitializationError,
+  type RendererStatus,
+} from "./createRenderer";
 import type { RenderStroke } from "./Renderer";
 
 type ShaderHandle = Readonly<{ id: number; type: number }>;
@@ -155,6 +159,7 @@ class FakeCanvas2DContext {
   public fillStyle: string | CanvasGradient | CanvasPattern = "";
   public globalAlpha = 1;
   public readonly paths: Array<Array<readonly [number, number]>> = [];
+  public readonly fillAlphas: number[] = [];
   private path: Array<readonly [number, number]> = [];
 
   public save(): void {}
@@ -173,6 +178,7 @@ class FakeCanvas2DContext {
   public closePath(): void {}
   public fill(): void {
     this.paths.push([...this.path]);
+    this.fillAlphas.push(this.globalAlpha);
   }
 
   public asContext(): CanvasRenderingContext2D {
@@ -195,17 +201,26 @@ function canvas(): HTMLCanvasElement {
   return document.createElement("canvas");
 }
 
+function compatibilitySurface(context = new FakeCanvas2DContext()): Readonly<{
+  surface: HTMLCanvasElement;
+  context: CanvasRenderingContext2D;
+}> {
+  return { surface: canvas(), context: context.asContext() };
+}
+
 describe("createRenderer", () => {
   it("selects WebGL2 and configures premultiplied-alpha blending", () => {
     const gl = new FakeWebGL2Context();
+    const target = canvas();
 
-    const selection = createRenderer(canvas(), {
+    const selection = createRenderer(target, {
       getWebGL2Context: () => gl.asContext(),
       getCanvas2DContext: () => null,
     });
 
     expect(selection.renderer).toBeInstanceOf(WebGL2Renderer);
     expect(selection.renderer.kind).toBe("webgl2");
+    expect(selection.surface).toBe(target);
     expect(selection.fallbackReason).toBeNull();
     expect(gl.enabledCapabilities).toContain(gl.BLEND);
     expect(gl.disabledCapabilities).toEqual(
@@ -217,14 +232,16 @@ describe("createRenderer", () => {
 
   it("returns an inspectable compatibility reason when WebGL2 is unavailable", () => {
     const context2d = new FakeCanvas2DContext();
+    const target = canvas();
 
-    const selection = createRenderer(canvas(), {
+    const selection = createRenderer(target, {
       getWebGL2Context: () => null,
       getCanvas2DContext: () => context2d.asContext(),
     });
 
     expect(selection.renderer).toBeInstanceOf(Canvas2DRenderer);
     expect(selection.renderer.kind).toBe("canvas2d-compat");
+    expect(selection.surface).toBe(target);
     expect(selection.fallbackReason).toMatchObject({
       code: "webgl2-context-unavailable",
     });
@@ -237,7 +254,7 @@ describe("createRenderer", () => {
 
     const selection = createRenderer(canvas(), {
       getWebGL2Context: () => gl.asContext(),
-      getCanvas2DContext: () => new FakeCanvas2DContext().asContext(),
+      createCompatibilitySurface: () => compatibilitySurface(),
     });
 
     expect(selection.renderer.kind).toBe("canvas2d-compat");
@@ -255,7 +272,7 @@ describe("createRenderer", () => {
 
     const selection = createRenderer(canvas(), {
       getWebGL2Context: () => gl.asContext(),
-      getCanvas2DContext: () => new FakeCanvas2DContext().asContext(),
+      createCompatibilitySurface: () => compatibilitySurface(),
     });
 
     expect(selection.renderer.kind).toBe("canvas2d-compat");
@@ -269,7 +286,8 @@ describe("createRenderer", () => {
   });
 
   it("reports thrown WebGL context creation failures without hiding the fallback", () => {
-    const selection = createRenderer(canvas(), {
+    const target = canvas();
+    const selection = createRenderer(target, {
       getWebGL2Context: () => {
         throw new Error("synthetic context creation failure");
       },
@@ -277,11 +295,115 @@ describe("createRenderer", () => {
     });
 
     expect(selection.renderer.kind).toBe("canvas2d-compat");
+    expect(selection.surface).toBe(target);
     expect(selection.fallbackReason).toEqual({
       code: "webgl2-context-creation-failed",
       message:
         "WebGL2 context creation failed: synthetic context creation failure",
     });
+  });
+
+  it("replaces an acquired WebGL canvas with a working structural clone after shader failure", () => {
+    const gl = new FakeWebGL2Context();
+    gl.compileSucceeds = false;
+    const context2d = new FakeCanvas2DContext();
+    const host = document.createElement("section");
+    const target = canvas();
+    target.id = "drawing-surface";
+    target.className = "canvas canvas--active";
+    target.width = 640;
+    target.height = 480;
+    target.setAttribute("aria-label", "Sketch canvas");
+    host.append(target);
+    document.body.append(host);
+    let sameCanvas2DRequests = 0;
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation(function (
+        this: HTMLCanvasElement,
+        contextId: string,
+      ) {
+        if (this === target && contextId === "webgl2") {
+          return gl.asContext();
+        }
+        if (this === target && contextId === "2d") {
+          sameCanvas2DRequests += 1;
+          return null;
+        }
+        if (this !== target && contextId === "2d") {
+          return context2d.asContext();
+        }
+        return null;
+      } as unknown as HTMLCanvasElement["getContext"]);
+
+    try {
+      const selection = createRenderer(target);
+
+      expect(selection.renderer.kind).toBe("canvas2d-compat");
+      expect(selection.fallbackReason).toMatchObject({
+        code: "webgl2-initialization-failed",
+      });
+      expect(selection.surface).not.toBe(target);
+      expect(host.firstElementChild).toBe(selection.surface);
+      expect(selection.surface).toMatchObject({
+        id: "drawing-surface",
+        className: "canvas canvas--active",
+        width: 640,
+        height: 480,
+      });
+      expect(selection.surface.getAttribute("aria-label")).toBe(
+        "Sketch canvas",
+      );
+      expect(sameCanvas2DRequests).toBe(0);
+
+      selection.renderer.commitStroke(stroke("recovered"));
+      selection.renderer.render(0);
+      expect(context2d.paths).toHaveLength(1);
+    } finally {
+      getContext.mockRestore();
+      host.remove();
+    }
+  });
+
+  it("supports an injected fresh compatibility surface after WebGL acquisition", () => {
+    const gl = new FakeWebGL2Context();
+    gl.linkSucceeds = false;
+    const target = canvas();
+    const freshSurface = canvas();
+    const context2d = new FakeCanvas2DContext();
+    const createCompatibilitySurface = vi.fn(() => ({
+      surface: freshSurface,
+      context: context2d.asContext(),
+    }));
+
+    const selection = createRenderer(target, {
+      getWebGL2Context: () => gl.asContext(),
+      createCompatibilitySurface,
+    });
+
+    expect(createCompatibilitySurface).toHaveBeenCalledWith(target);
+    expect(selection.surface).toBe(freshSurface);
+    expect(selection.renderer.kind).toBe("canvas2d-compat");
+  });
+
+  it("throws an explicit hard error when no working compatibility context can be created", () => {
+    const gl = new FakeWebGL2Context();
+    gl.compileSucceeds = false;
+
+    expect(() =>
+      createRenderer(canvas(), {
+        getWebGL2Context: () => gl.asContext(),
+        createCompatibilitySurface: () => ({
+          surface: canvas(),
+          context: null,
+        }),
+      }),
+    ).toThrowError(
+      expect.objectContaining<Partial<RendererInitializationError>>({
+        name: "RendererInitializationError",
+        code: "canvas2d-context-unavailable",
+      }),
+    );
   });
 
   it("uploads row-major viewport matrices in WebGL column-major order", () => {
@@ -420,7 +542,7 @@ describe("createRenderer", () => {
     expect(removeEventListener).toHaveBeenCalledTimes(2);
   });
 
-  it("fills Canvas 2D triangle strips as ordered polygons without deduplicating coordinates", () => {
+  it("fills Canvas 2D triangle-strip segments without deduplicating coordinates", () => {
     const context2d = new FakeCanvas2DContext();
     const { renderer } = createRenderer(canvas(), {
       getWebGL2Context: () => null,
@@ -441,11 +563,41 @@ describe("createRenderer", () => {
       [
         [0, 1],
         [0, 1],
-        [10, 1],
-        [10, -1],
         [5, -1],
         [0, -1],
       ],
+      [
+        [0, 1],
+        [10, 1],
+        [10, -1],
+        [5, -1],
+      ],
+    ]);
+  });
+
+  it("uses ordered segment-local alpha for varying-pressure Canvas 2D strips", () => {
+    const context2d = new FakeCanvas2DContext();
+    const { renderer } = createRenderer(canvas(), {
+      getWebGL2Context: () => null,
+      getCanvas2DContext: () => context2d.asContext(),
+    });
+    renderer.commitStroke(
+      stroke(
+        "varying-alpha",
+        new Float32Array([
+          0, 1, 0, 0, -1, 0.2, 10, 1, 0.2, 10, -1, 0.4, 20, 1, 0.6, 20, -1, 0.8,
+          30, 1, 1, 30, -1, 1,
+        ]),
+      ),
+    );
+
+    renderer.render(0);
+
+    expect(context2d.paths).toHaveLength(3);
+    expect(context2d.fillAlphas).toEqual([
+      expect.closeTo(0.16),
+      expect.closeTo(0.4),
+      expect.closeTo(0.68),
     ]);
   });
 

@@ -15,7 +15,7 @@ export class Canvas2DRenderer implements Renderer {
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly context: CanvasRenderingContext2D | null,
+    private readonly context: CanvasRenderingContext2D,
   ) {}
 
   public resize(
@@ -78,7 +78,7 @@ export class Canvas2DRenderer implements Renderer {
 
   public render(now: number): void {
     void now;
-    if (this.disposed || this.context === null) {
+    if (this.disposed) {
       return;
     }
 
@@ -133,30 +133,42 @@ function drawStroke(
 
   const [red, green, blue, colorAlpha] = stroke.color;
   context.fillStyle = `rgb(${toByte(red)} ${toByte(green)} ${toByte(blue)})`;
-  context.globalAlpha = clamp01(colorAlpha) * averageVertexAlpha(stroke.mesh);
-  context.beginPath();
-  context.moveTo(stroke.mesh[0]!, stroke.mesh[1]!);
-
-  for (let vertex = 2; vertex < pairedVertexCount; vertex += 2) {
-    const offset = vertex * VERTEX_STRIDE;
-    context.lineTo(stroke.mesh[offset]!, stroke.mesh[offset + 1]!);
+  for (
+    let firstVertex = 0;
+    firstVertex + 3 < pairedVertexCount;
+    firstVertex += 2
+  ) {
+    const firstLeft = firstVertex * VERTEX_STRIDE;
+    const firstRight = (firstVertex + 1) * VERTEX_STRIDE;
+    const secondLeft = (firstVertex + 2) * VERTEX_STRIDE;
+    const secondRight = (firstVertex + 3) * VERTEX_STRIDE;
+    context.globalAlpha =
+      clamp01(colorAlpha) *
+      segmentAlpha(stroke.mesh, firstLeft, firstRight, secondLeft, secondRight);
+    context.beginPath();
+    context.moveTo(stroke.mesh[firstLeft]!, stroke.mesh[firstLeft + 1]!);
+    context.lineTo(stroke.mesh[secondLeft]!, stroke.mesh[secondLeft + 1]!);
+    context.lineTo(stroke.mesh[secondRight]!, stroke.mesh[secondRight + 1]!);
+    context.lineTo(stroke.mesh[firstRight]!, stroke.mesh[firstRight + 1]!);
+    context.closePath();
+    context.fill();
   }
-  for (let vertex = pairedVertexCount - 1; vertex >= 1; vertex -= 2) {
-    const offset = vertex * VERTEX_STRIDE;
-    context.lineTo(stroke.mesh[offset]!, stroke.mesh[offset + 1]!);
-  }
-
-  context.closePath();
-  context.fill();
 }
 
-function averageVertexAlpha(mesh: Float32Array): number {
-  const vertexCount = Math.floor(mesh.length / VERTEX_STRIDE);
-  let total = 0;
-  for (let vertex = 0; vertex < vertexCount; vertex += 1) {
-    total += clamp01(mesh[vertex * VERTEX_STRIDE + 2]!);
-  }
-  return vertexCount === 0 ? 0 : total / vertexCount;
+function segmentAlpha(
+  mesh: Float32Array,
+  firstLeft: number,
+  firstRight: number,
+  secondLeft: number,
+  secondRight: number,
+): number {
+  return (
+    (clamp01(mesh[firstLeft + 2]!) +
+      clamp01(mesh[firstRight + 2]!) +
+      clamp01(mesh[secondLeft + 2]!) +
+      clamp01(mesh[secondRight + 2]!)) /
+    4
+  );
 }
 
 function toByte(value: number): number {
