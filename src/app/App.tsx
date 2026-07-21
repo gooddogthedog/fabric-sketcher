@@ -1,27 +1,38 @@
+import { useSyncExternalStore } from "react";
+import type { RendererSelection } from "../engine/render/createRenderer";
+import { BrowserProjectRepository } from "../platform/persistence/BrowserProjectRepository";
+import { MemoryProjectRepository } from "../platform/persistence/MemoryProjectRepository";
+import { createEditorStore, type EditorStore } from "../state/editorStore";
+import { EditorScreen } from "./EditorScreen";
+import { ProjectGallery } from "./ProjectGallery";
 import "./app.css";
 
-function PlusIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="primary-action__icon"
-      viewBox="0 0 24 24"
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
+export type AppProps = Readonly<{
+  store?: EditorStore;
+  rendererFactory?: (surface: HTMLCanvasElement) => RendererSelection;
+}>;
 
-export function App() {
-  return (
-    <main className="gallery-shell">
-      <header className="app-header">
-        <h1>Fabric Sketcher</h1>
-        <button className="primary-action" type="button">
-          <PlusIcon />
-          <span>New blank design</span>
-        </button>
-      </header>
-    </main>
-  );
+const defaultStore = createEditorStore({
+  repository:
+    typeof globalThis.indexedDB === "undefined"
+      ? new MemoryProjectRepository()
+      : new BrowserProjectRepository(),
+});
+
+export function App({ store = defaultStore, rendererFactory }: AppProps) {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+
+  if (snapshot.view === "editor" && snapshot.document) {
+    return (
+      <EditorScreen
+        document={snapshot.document}
+        rendererFactory={rendererFactory}
+        saveError={snapshot.saveError}
+        saveStatus={snapshot.saveStatus}
+        store={store}
+      />
+    );
+  }
+
+  return <ProjectGallery projects={snapshot.projects} store={store} />;
 }
