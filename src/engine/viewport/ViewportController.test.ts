@@ -229,7 +229,7 @@ describe("ViewportController", () => {
     expect(matrixRotationDegrees(controller)).toBeCloseTo(0, 10);
   });
 
-  it("fits the document within safe-area-adjusted bounds on reset", () => {
+  it("uses the literal safe-area fit scale when it is supported", () => {
     const controller = createController();
 
     controller.reset(
@@ -243,10 +243,35 @@ describe("ViewportController", () => {
       x: 1_000,
       y: 500,
     });
+    const documentCenter = transformPoint(controller.getMatrix(), {
+      x: 500,
+      y: 250,
+    });
+    expect(
+      Math.hypot(controller.getMatrix()[0], controller.getMatrix()[3]),
+    ).toBeCloseTo(0.7, 12);
     expect(topLeft.x).toBeCloseTo(60, 10);
     expect(topLeft.y).toBeCloseTo(120, 10);
     expect(bottomRight.x).toBeCloseTo(760, 10);
     expect(bottomRight.y).toBeCloseTo(470, 10);
+    expect(documentCenter.x).toBeCloseTo(410, 10);
+    expect(documentCenter.y).toBeCloseTo(295, 10);
+  });
+
+  it("uses scale 0.05 and centers as best effort when literal fit is smaller", () => {
+    const controller = createController();
+
+    controller.reset(
+      { x: 0, y: 0, width: 10_000, height: 10_000 },
+      { x: 10, y: 20, width: 400, height: 200 },
+      { top: 10, right: 30, bottom: 20, left: 20 },
+    );
+
+    const matrix = controller.getMatrix();
+    const documentCenter = transformPoint(matrix, { x: 5_000, y: 5_000 });
+    expect(Math.hypot(matrix[0], matrix[3])).toBeCloseTo(0.05, 12);
+    expect(documentCenter.x).toBeCloseTo(205, 10);
+    expect(documentCenter.y).toBeCloseTo(115, 10);
   });
 
   it("batches subscriber updates into one injected animation frame", () => {

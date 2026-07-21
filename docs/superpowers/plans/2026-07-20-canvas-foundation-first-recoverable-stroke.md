@@ -594,7 +594,7 @@ The controller consumes only touch contacts. Tests must prove:
 - A touch already participating in navigation remains stable when another finger joins or leaves.
 - Scale clamps to `0.05–32`; the transform never becomes singular.
 - Rotation snapping at 0°, 90°, 180°, and 270° engages within 3° and releases beyond 5°.
-- `reset()` fits the document within safe-area-adjusted bounds.
+- `reset()` fits and centers the document within safe-area-adjusted bounds whenever the literal fit scale is within `0.05–32`; otherwise it uses the nearest supported zoom and centers the document as a best effort.
 
 ### Step 3: Implement a matrix-owning controller
 

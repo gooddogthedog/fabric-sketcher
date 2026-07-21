@@ -138,6 +138,11 @@ export class ViewportController {
     this.rebase();
   }
 
+  /**
+   * Fits and centers the document in the safe-area-adjusted viewport whenever
+   * the literal fit scale is within 0.05–32. Outside that range, it uses the
+   * nearest supported zoom and centers the document as a best effort.
+   */
   public reset(
     documentBounds: Bounds,
     viewportBounds: Bounds,
