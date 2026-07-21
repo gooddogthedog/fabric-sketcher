@@ -12,14 +12,28 @@ export type PenSample = Readonly<{
   time: number;
 }>;
 
+export type BrushPresetId =
+  "studio-pencil-v1" | "silk-v1" | "denim-v1" | "wool-v1" | "knit-v1";
+
+export type BrushTextureKind = "graphite" | "silk" | "denim" | "wool" | "knit";
+
+export type BrushTextureSnapshot = Readonly<{
+  kind: BrushTextureKind;
+  scale: number;
+  strength: number;
+  angle: number;
+  scatter: number;
+}>;
+
 export type BrushSnapshot = Readonly<{
-  id: "studio-pencil-v1";
+  id: BrushPresetId;
   color: `#${string}`;
   opacity: number;
   size: number;
   pressureSize: number;
   pressureOpacity: number;
   tiltShape: number;
+  texture: BrushTextureSnapshot;
 }>;
 
 export type StrokeOperation = Readonly<{

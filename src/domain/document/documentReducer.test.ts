@@ -23,6 +23,13 @@ const stroke = (overrides: Partial<StrokeOperation> = {}): StrokeOperation => ({
     pressureSize: 1,
     pressureOpacity: 1,
     tiltShape: 0,
+    texture: {
+      kind: "graphite",
+      scale: 18,
+      strength: 0.34,
+      angle: 0,
+      scatter: 0.18,
+    },
   },
   samples: [
     {
@@ -79,6 +86,32 @@ describe("documentReducer", () => {
     expect(nextDocument.operationSequence).toBe(1);
     expect(document.strokes).toEqual([]);
     expect(document.operationSequence).toBe(0);
+  });
+
+  it("normalizes a legacy schema-v1 pencil journal operation", () => {
+    const operation = stroke();
+    const legacyBrush = {
+      id: operation.brush.id,
+      color: operation.brush.color,
+      opacity: operation.brush.opacity,
+      size: operation.brush.size,
+      pressureSize: operation.brush.pressureSize,
+      pressureOpacity: operation.brush.pressureOpacity,
+      tiltShape: operation.brush.tiltShape,
+    };
+
+    const document = documentReducer(
+      createDocument({ projectId: "project-123", title: "Legacy pencil" }),
+      { ...operation, brush: legacyBrush as StrokeOperation["brush"] },
+    );
+
+    expect(document.strokes[0]?.brush.texture).toEqual({
+      kind: "graphite",
+      scale: 18,
+      strength: 0.34,
+      angle: 0,
+      scatter: 0.18,
+    });
   });
 
   it("is idempotent when replaying a duplicate operation ID", () => {

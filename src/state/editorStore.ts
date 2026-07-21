@@ -1,4 +1,5 @@
 import { buildStrokeMesh } from "../engine/brush/buildStrokeMesh";
+import { DEFAULT_BRUSH_ID, getBrushPreset } from "../engine/brush/presets";
 import type { Renderer, RenderStroke } from "../engine/render/Renderer";
 import { createDocument } from "../domain/document/createDocument";
 import { documentReducer } from "../domain/document/documentReducer";
@@ -24,6 +25,7 @@ export type EditorSnapshot = Readonly<{
   saveStatus: EditorSaveStatus;
   saveError: string | null;
   navigationBusy: boolean;
+  brush: BrushSnapshot;
 }>;
 
 export type EditorPerformance = Readonly<{
@@ -54,15 +56,7 @@ type PendingWrite = {
 
 const DURABILITY_BUDGET_MS = 250;
 
-export const studioPencil: BrushSnapshot = Object.freeze({
-  id: "studio-pencil-v1",
-  color: "#262421",
-  opacity: 0.78,
-  size: 16,
-  pressureSize: 1,
-  pressureOpacity: 0.65,
-  tiltShape: 0.4,
-});
+export const studioPencil = getBrushPreset(DEFAULT_BRUSH_ID);
 
 export class EditorStore {
   readonly #repository: ProjectRepository;
@@ -70,7 +64,7 @@ export class EditorStore {
   readonly #now: () => string;
   readonly #performance: EditorPerformance;
   readonly #confirmClose: () => boolean | Promise<boolean>;
-  readonly #brush: BrushSnapshot;
+  #brush: BrushSnapshot;
   readonly #listeners = new Set<() => void>();
   readonly #pendingWrites = new Map<string, Map<string, PendingWrite>>();
   readonly #retryWaves = new Map<string, Promise<void>>();
@@ -85,6 +79,7 @@ export class EditorStore {
     saveStatus: "saved",
     saveError: null,
     navigationBusy: false,
+    brush: studioPencil,
   });
 
   public constructor(options: EditorStoreOptions) {
@@ -94,10 +89,18 @@ export class EditorStore {
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#performance = options.performance ?? defaultPerformance();
     this.#confirmClose = options.confirmClose ?? defaultConfirmClose;
-    this.#brush = options.brush ?? studioPencil;
+    this.#brush = immutableBrush(options.brush ?? studioPencil);
+    this.#snapshot = Object.freeze({ ...this.#snapshot, brush: this.#brush });
   }
 
   public getSnapshot = (): EditorSnapshot => this.#snapshot;
+
+  public getActiveBrush = (): BrushSnapshot => this.#brush;
+
+  public selectBrush(id: BrushSnapshot["id"]): void {
+    this.#brush = getBrushPreset(id);
+    this.#update({ brush: this.#brush });
+  }
 
   public subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
@@ -142,7 +145,10 @@ export class EditorStore {
     }
   }
 
-  public commitStroke(samples: readonly PenSample[]): Promise<void> {
+  public commitStroke(
+    samples: readonly PenSample[],
+    brush: BrushSnapshot = this.#brush,
+  ): Promise<void> {
     const startedAt = this.#performance.now();
     const document = this.#requireDocument();
     const operation: StrokeOperation = Object.freeze({
@@ -152,7 +158,7 @@ export class EditorStore {
       layerId: document.activeLayerId,
       sequence: document.operationSequence + 1,
       committedAt: this.#now(),
-      brush: Object.freeze({ ...this.#brush }),
+      brush: immutableBrush(brush),
       samples: immutableSamples(samples),
     });
     const nextDocument = documentReducer(document, operation);
@@ -272,6 +278,7 @@ export class EditorStore {
     this.#requestRender();
     const saveState = this.#saveState(document.projectId);
     this.#snapshot = Object.freeze({
+      ...this.#snapshot,
       view: "editor",
       projects: Object.freeze([...projects]),
       document,
@@ -437,6 +444,7 @@ export function toRenderStroke(operation: StrokeOperation): RenderStroke {
     operationId: operation.operationId,
     mesh: buildStrokeMesh(operation.samples, operation.brush),
     color: hexColor(operation.brush.color),
+    texture: Object.freeze({ ...operation.brush.texture }),
   });
 }
 
@@ -455,6 +463,13 @@ function hexColor(color: `#${string}`): readonly [number, number, number, 1] {
 
 function immutableSamples(samples: readonly PenSample[]): readonly PenSample[] {
   return Object.freeze(samples.map((sample) => Object.freeze({ ...sample })));
+}
+
+function immutableBrush(brush: BrushSnapshot): BrushSnapshot {
+  return Object.freeze({
+    ...brush,
+    texture: Object.freeze({ ...brush.texture }),
+  });
 }
 
 function defaultId(): string {

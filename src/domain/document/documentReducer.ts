@@ -1,4 +1,8 @@
-import type { DesignDocument, DocumentOperation } from "./types";
+import type {
+  DesignDocument,
+  DocumentOperation,
+  StrokeOperation,
+} from "./types";
 
 export class DocumentSequenceError extends Error {
   constructor(expected: number, received: number) {
@@ -70,10 +74,35 @@ export function documentReducer(
   if (operation.samples.length < 2) {
     throw new DocumentStrokeError(operation.samples.length);
   }
+  const stroke = normalizeLegacyPencilStroke(operation);
 
   return {
     ...document,
     operationSequence: document.operationSequence + 1,
-    strokes: [...document.strokes, operation],
+    strokes: [...document.strokes, stroke],
+  };
+}
+
+function normalizeLegacyPencilStroke(
+  operation: StrokeOperation,
+): StrokeOperation {
+  if (
+    operation.brush.id !== "studio-pencil-v1" ||
+    operation.brush.texture !== undefined
+  ) {
+    return operation;
+  }
+  return {
+    ...operation,
+    brush: {
+      ...operation.brush,
+      texture: {
+        kind: "graphite",
+        scale: 18,
+        strength: 0.34,
+        angle: 0,
+        scatter: 0.18,
+      },
+    },
   };
 }

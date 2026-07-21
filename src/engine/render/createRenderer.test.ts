@@ -194,6 +194,13 @@ function stroke(
     operationId,
     mesh,
     color: [0.25, 0.5, 0.75, 0.8],
+    texture: {
+      kind: "graphite",
+      scale: 18,
+      strength: 0.34,
+      angle: 0,
+      scatter: 0.18,
+    },
   };
 }
 

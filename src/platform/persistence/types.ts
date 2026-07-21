@@ -75,7 +75,7 @@ export function decodeDocumentSnapshot(
   ) {
     throw new Error(`Invalid snapshot for project ${expectedProjectId}.`);
   }
-  return candidate as DesignDocument;
+  return normalizeDocumentSnapshot(candidate as DesignDocument);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -110,17 +110,77 @@ function isPenSample(value: unknown): value is PenSample {
 }
 
 function isBrushSnapshot(value: unknown): value is BrushSnapshot {
-  return (
+  const isLegacyPencil =
     isRecord(value) &&
     value.id === "studio-pencil-v1" &&
+    value.texture === undefined;
+  return (
+    isRecord(value) &&
+    isBrushPresetId(value.id) &&
     typeof value.color === "string" &&
     /^#[0-9a-fA-F]{6}$/.test(value.color) &&
-    isFiniteNumber(value.opacity) &&
+    isUnitIntervalFiniteNumber(value.opacity) &&
     isPositiveFiniteNumber(value.size) &&
-    isFiniteNumber(value.pressureSize) &&
-    isFiniteNumber(value.pressureOpacity) &&
-    isFiniteNumber(value.tiltShape)
+    isUnitIntervalFiniteNumber(value.pressureSize) &&
+    isUnitIntervalFiniteNumber(value.pressureOpacity) &&
+    isUnitIntervalFiniteNumber(value.tiltShape) &&
+    (isLegacyPencil || isBrushTextureSnapshot(value.texture))
   );
+}
+
+function isBrushPresetId(value: unknown): boolean {
+  return (
+    value === "studio-pencil-v1" ||
+    value === "silk-v1" ||
+    value === "denim-v1" ||
+    value === "wool-v1" ||
+    value === "knit-v1"
+  );
+}
+
+function isBrushTextureSnapshot(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.kind === "graphite" ||
+      value.kind === "silk" ||
+      value.kind === "denim" ||
+      value.kind === "wool" ||
+      value.kind === "knit") &&
+    isPositiveFiniteNumber(value.scale) &&
+    isUnitIntervalFiniteNumber(value.strength) &&
+    isFiniteNumber(value.angle) &&
+    isUnitIntervalFiniteNumber(value.scatter)
+  );
+}
+
+function isUnitIntervalFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0 && value <= 1;
+}
+
+function normalizeDocumentSnapshot(document: DesignDocument): DesignDocument {
+  if (document.strokes.every((stroke) => stroke.brush.texture)) {
+    return document;
+  }
+  return {
+    ...document,
+    strokes: document.strokes.map((stroke) =>
+      stroke.brush.texture
+        ? stroke
+        : {
+            ...stroke,
+            brush: {
+              ...stroke.brush,
+              texture: {
+                kind: "graphite",
+                scale: 18,
+                strength: 0.34,
+                angle: 0,
+                scatter: 0.18,
+              },
+            },
+          },
+    ),
+  };
 }
 
 function isStrokeOperation(

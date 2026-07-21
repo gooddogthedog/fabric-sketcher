@@ -1,4 +1,8 @@
-import type { DesignDocument, PenSample } from "../../domain/document/types";
+import type {
+  BrushSnapshot,
+  DesignDocument,
+  PenSample,
+} from "../../domain/document/types";
 import { buildStrokeMesh } from "../../engine/brush/buildStrokeMesh";
 import { normalizePointerEvent } from "../../engine/input/normalizePointerEvent";
 import type { InputBatch, PointerEventLike } from "../../engine/input/types";
@@ -45,7 +49,11 @@ export type CreateDrawingControllerOptions = Readonly<{
   surface: HTMLCanvasElement;
   renderer: Renderer;
   document: DesignDocument;
-  commitStroke: (samples: readonly PenSample[]) => void | PromiseLike<void>;
+  commitStroke: (
+    samples: readonly PenSample[],
+    brush?: BrushSnapshot,
+  ) => void | PromiseLike<void>;
+  getActiveBrush?: () => BrushSnapshot;
   viewportFactory?: DrawingViewportFactory;
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (frameId: number) => void;
@@ -75,6 +83,7 @@ export function createDrawingController(
   const getDevicePixelRatio =
     options.getDevicePixelRatio ?? (() => globalThis.devicePixelRatio || 1);
   let activePencilContact: Point2D | null = null;
+  let pencilDownBrush: BrushSnapshot | null = null;
   let renderFrame: number | null = null;
   let disposed = false;
 
@@ -94,20 +103,34 @@ export function createDrawingController(
     });
   };
 
+  const activeBrush = (): BrushSnapshot =>
+    options.getActiveBrush?.() ?? studioPencil;
+
   const strokeSession = new StrokeSession({
     onPreview: (confirmed, predicted) => {
       if (confirmed.length === 0 && predicted.length === 0) {
         renderer.clearPreview();
       } else {
         renderer.previewStroke(
-          previewStroke("preview-confirmed", confirmed),
-          previewStroke("preview-predicted", predicted),
+          previewStroke(
+            "preview-confirmed",
+            confirmed,
+            pencilDownBrush ?? activeBrush(),
+          ),
+          previewStroke(
+            "preview-predicted",
+            predicted,
+            pencilDownBrush ?? activeBrush(),
+          ),
         );
       }
       scheduleRender();
     },
     onCommit: (samples) => {
-      const result = options.commitStroke(samples);
+      const result = options.commitStroke(
+        samples,
+        pencilDownBrush ?? activeBrush(),
+      );
       scheduleRender();
       return result;
     },
@@ -125,6 +148,7 @@ export function createDrawingController(
       return;
     }
     event.preventDefault();
+    pencilDownBrush = activeBrush();
     activePencilContact = toLocalPoint(event, surface);
     capturePointer(surface, event.pointerId);
     strokeSession.handle(toInputBatch(event, "down", surface, viewport));
@@ -158,6 +182,7 @@ export function createDrawingController(
     activePencilContact = toLocalPoint(event, surface);
     strokeSession.handle(toInputBatch(event, "up", surface, viewport));
     activePencilContact = null;
+    pencilDownBrush = null;
     releasePointer(surface, event.pointerId);
   };
 
@@ -174,6 +199,7 @@ export function createDrawingController(
     event.preventDefault();
     strokeSession.handle(toInputBatch(event, "cancel", surface, viewport));
     activePencilContact = null;
+    pencilDownBrush = null;
     releasePointer(surface, event.pointerId);
   };
 
@@ -303,15 +329,26 @@ function toLocalPoint(
 function previewStroke(
   operationId: string,
   samples: readonly PenSample[],
+  brush: BrushSnapshot,
 ): RenderStroke | null {
   if (samples.length === 0) {
     return null;
   }
   return {
     operationId,
-    mesh: buildStrokeMesh(samples, studioPencil),
-    color: [38 / 255, 36 / 255, 33 / 255, 1],
+    mesh: buildStrokeMesh(samples, brush),
+    color: hexColor(brush.color),
+    texture: Object.freeze({ ...brush.texture }),
   };
+}
+
+function hexColor(color: `#${string}`): readonly [number, number, number, 1] {
+  return [
+    Number.parseInt(color.slice(1, 3), 16) / 255,
+    Number.parseInt(color.slice(3, 5), 16) / 255,
+    Number.parseInt(color.slice(5, 7), 16) / 255,
+    1,
+  ];
 }
 
 function capturePointer(surface: HTMLCanvasElement, pointerId: number): void {

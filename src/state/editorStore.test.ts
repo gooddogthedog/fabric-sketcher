@@ -12,7 +12,8 @@ import type {
   ProjectRepository,
   ProjectSummary,
 } from "../platform/persistence/types";
-import { createEditorStore } from "./editorStore";
+import { getBrushPreset } from "../engine/brush/presets";
+import { createEditorStore, toRenderStroke } from "./editorStore";
 
 const samples: readonly PenSample[] = [
   {
@@ -104,6 +105,13 @@ function stroke(overrides: Partial<StrokeOperation> = {}): StrokeOperation {
       pressureSize: 1,
       pressureOpacity: 0.65,
       tiltShape: 0.4,
+      texture: {
+        kind: "graphite",
+        scale: 18,
+        strength: 0.34,
+        angle: 0,
+        scatter: 0.18,
+      },
     },
     samples,
     ...overrides,
@@ -111,6 +119,57 @@ function stroke(overrides: Partial<StrokeOperation> = {}): StrokeOperation {
 }
 
 describe("EditorStore", () => {
+  it("selects a catalog brush and snapshots it into queued operations", async () => {
+    const operations: DocumentOperation[] = [];
+    const store = createEditorStore({
+      repository: repository({
+        appendOperation: vi.fn(async (operation) => {
+          operations.push(operation);
+        }),
+      }),
+      createId: () => "stroke-1",
+    });
+    await store.openProject("project-1");
+
+    store.selectBrush("denim-v1");
+    expect(store.getSnapshot().brush.id).toBe("denim-v1");
+    expect(store.getActiveBrush()).toEqual(getBrushPreset("denim-v1"));
+    await store.commitStroke(samples);
+
+    const operation = operations.find(
+      (candidate): candidate is StrokeOperation =>
+        candidate.type === "stroke.committed",
+    );
+
+    expect(operation?.brush).toEqual(getBrushPreset("denim-v1"));
+    store.selectBrush("silk-v1");
+    expect(operation?.brush.id).toBe("denim-v1");
+  });
+
+  it("uses a pencil-down brush capture for both persistence and rendering", async () => {
+    const activeRenderer = renderer();
+    const operations: DocumentOperation[] = [];
+    const store = createEditorStore({
+      repository: repository({
+        appendOperation: vi.fn(async (operation) => {
+          operations.push(operation);
+        }),
+      }),
+      renderer: activeRenderer,
+      createId: () => "stroke-1",
+    });
+    await store.openProject("project-1");
+    const captured = getBrushPreset("wool-v1");
+    store.selectBrush("silk-v1");
+
+    await store.commitStroke(samples, captured);
+
+    expect(operations[0]).toMatchObject({ brush: captured });
+    expect(activeRenderer.commitStroke).toHaveBeenCalledWith(
+      expect.objectContaining({ texture: captured.texture }),
+    );
+  });
+
   it("persists a new project before navigating to its editor", async () => {
     const persisted = deferred<void>();
     const projectRepository = repository({
@@ -154,6 +213,17 @@ describe("EditorStore", () => {
     expect(activeRenderer.replaceDocument).toHaveBeenCalledWith([
       expect.objectContaining({ operationId: "recovered-stroke" }),
     ]);
+    store.selectBrush("silk-v1");
+    expect(store.getSnapshot().document?.strokes[0]?.brush).toEqual(
+      getBrushPreset("studio-pencil-v1"),
+    );
+  });
+
+  it("copies the operation texture into the renderer boundary", () => {
+    const operation = stroke({ brush: getBrushPreset("knit-v1") });
+
+    expect(toRenderStroke(operation).texture).toEqual(operation.brush.texture);
+    expect(toRenderStroke(operation).texture).not.toBe(operation.brush.texture);
   });
 
   it("updates memory immediately, appends once, and reports saving then saved", async () => {
@@ -201,6 +271,7 @@ describe("EditorStore", () => {
       now: () => "2026-07-21T12:00:00.000Z",
     });
     await store.openProject("project-1");
+    store.selectBrush("denim-v1");
 
     await store.commitStroke(samples);
 
@@ -208,6 +279,7 @@ describe("EditorStore", () => {
       saveStatus: "error",
       document: { strokes: [{ operationId: "stroke-1" }] },
     });
+    store.selectBrush("silk-v1");
 
     await store.retrySave();
 
@@ -215,6 +287,10 @@ describe("EditorStore", () => {
     expect(appends).toHaveLength(2);
     expect(appends[0]?.[0].operationId).toBe("stroke-1");
     expect(appends[1]?.[0].operationId).toBe("stroke-1");
+    expect(appends[0]?.[0]).toBe(appends[1]?.[0]);
+    expect(appends[1]?.[0]).toMatchObject({
+      brush: getBrushPreset("denim-v1"),
+    });
     expect(store.getSnapshot().document?.strokes).toHaveLength(1);
     expect(activeRenderer.commitStroke).toHaveBeenCalledTimes(1);
     expect(store.getSnapshot().saveStatus).toBe("saved");

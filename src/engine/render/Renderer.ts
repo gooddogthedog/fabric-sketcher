@@ -1,4 +1,5 @@
 import type { Matrix3 } from "../math/affine";
+import type { BrushTextureKind } from "../../domain/document/types";
 
 /**
  * A normalized, unpremultiplied RGBA tuple. Renderers multiply RGB by the
@@ -11,11 +12,20 @@ export type RenderColor = readonly [
   alpha: number,
 ];
 
+export type RenderTexture = Readonly<{
+  kind: BrushTextureKind;
+  scale: number;
+  strength: number;
+  angle: number;
+  scatter: number;
+}>;
+
 export type RenderStroke = Readonly<{
   operationId: string;
   /** Interleaved `(x, y, alpha)` vertices forming one triangle strip. */
   mesh: Float32Array;
   color: RenderColor;
+  texture: RenderTexture;
 }>;
 
 export interface Renderer {

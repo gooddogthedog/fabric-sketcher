@@ -7,6 +7,7 @@ import type {
 } from "../../domain/document/types";
 import type { ProjectRepository } from "./types";
 import { PersistenceError } from "./types";
+import { BRUSH_PRESETS, getBrushPreset } from "../../engine/brush/presets";
 
 export const stroke = (
   overrides: Partial<StrokeOperation> = {},
@@ -25,6 +26,13 @@ export const stroke = (
     pressureSize: 1,
     pressureOpacity: 1,
     tiltShape: 0,
+    texture: {
+      kind: "graphite",
+      scale: 18,
+      strength: 0.34,
+      angle: 0,
+      scatter: 0.18,
+    },
   },
   samples: [
     {
@@ -150,6 +158,59 @@ export function describeProjectRepositoryContract(
         strokes: [stroke()],
         hiddenStrokeIds: ["stroke-1"],
       });
+    });
+
+    it("round-trips every calibrated brush with its complete texture snapshot", async () => {
+      const initial = createDocument({
+        projectId: "project-1",
+        title: "Fabric swatches",
+      });
+      await harness.repository.createProject(initial);
+      let expected = initial;
+
+      for (const [index, preset] of BRUSH_PRESETS.entries()) {
+        const operation = stroke({
+          operationId: `stroke-${preset.id}`,
+          sequence: index + 1,
+          brush: getBrushPreset(preset.id),
+        });
+        await harness.repository.appendOperation(operation);
+        expected = documentReducer(expected, operation);
+      }
+      await harness.repository.writeSnapshot(expected);
+
+      await expect(
+        harness.repository.loadProject("project-1"),
+      ).resolves.toEqual(expected);
+    });
+
+    it("reads a schema-v1 pencil snapshot without a texture object", async () => {
+      const initial = createDocument({
+        projectId: "project-1",
+        title: "Legacy pencil",
+      });
+      const operation = stroke();
+      const expected = documentReducer(initial, operation);
+      const legacyBrush = {
+        id: operation.brush.id,
+        color: operation.brush.color,
+        opacity: operation.brush.opacity,
+        size: operation.brush.size,
+        pressureSize: operation.brush.pressureSize,
+        pressureOpacity: operation.brush.pressureOpacity,
+        tiltShape: operation.brush.tiltShape,
+      };
+      await harness.repository.createProject(initial);
+      await harness.repository.appendOperation(operation);
+      await harness.repository.writeSnapshot(expected);
+      await harness.replaceLatestSnapshot("project-1", {
+        ...expected,
+        strokes: [{ ...operation, brush: legacyBrush }],
+      });
+
+      await expect(
+        harness.repository.loadProject("project-1"),
+      ).resolves.toEqual(expected);
     });
 
     it("treats a duplicate visibility operation ID as an idempotent append", async () => {

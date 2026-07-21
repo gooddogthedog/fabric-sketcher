@@ -12,6 +12,13 @@ const brush: BrushSnapshot = {
   pressureSize: 1,
   pressureOpacity: 1,
   tiltShape: 0,
+  texture: {
+    kind: "graphite",
+    scale: 18,
+    strength: 0.34,
+    angle: 0,
+    scatter: 0.18,
+  },
 };
 
 function sample(overrides: Partial<PenSample> = {}): PenSample {

@@ -59,6 +59,7 @@ export function DrawingSurface({
         height,
       },
       commitStroke: store.commitStroke.bind(store),
+      getActiveBrush: store.getActiveBrush,
       viewportFactory,
     });
     const detachRenderer = store.attachRenderer(
