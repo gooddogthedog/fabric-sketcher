@@ -77,8 +77,11 @@ function renderer(): Renderer {
   };
 }
 
-function createDocumentFixture(): DesignDocument {
-  return createDocument({ projectId: "project-1", title: "Linen Study" });
+function createDocumentFixture(
+  projectId = "project-1",
+  title = "Linen Study",
+): DesignDocument {
+  return createDocument({ projectId, title });
 }
 
 function recoveredDocument(): DesignDocument {
@@ -217,12 +220,45 @@ describe("EditorStore", () => {
     expect(store.getSnapshot().saveStatus).toBe("saved");
   });
 
-  it("asks before closing during a pending save and leaves durability running", async () => {
+  it("blocks Back after a failed append, then closes after retry succeeds", async () => {
+    const projectRepository = repository({
+      appendOperation: vi
+        .fn<(operation: DocumentOperation) => Promise<void>>()
+        .mockRejectedValueOnce(new Error("disk full"))
+        .mockResolvedValueOnce(undefined),
+    });
+    const confirmClose = vi.fn().mockResolvedValue(true);
+    const store = createEditorStore({
+      repository: projectRepository,
+      createId: () => "stroke-1",
+      confirmClose,
+    });
+    await store.openProject("project-1");
+
+    await store.commitStroke(samples);
+    await store.closeProject();
+
+    expect(confirmClose).not.toHaveBeenCalled();
+    expect(store.getSnapshot()).toMatchObject({
+      view: "editor",
+      saveStatus: "error",
+      saveError: "disk full",
+      document: { strokes: [{ operationId: "stroke-1" }] },
+    });
+
+    await store.retrySave();
+    await store.closeProject();
+
+    expect(store.getSnapshot()).toMatchObject({
+      view: "gallery",
+      saveStatus: "saved",
+      document: null,
+    });
+  });
+
+  it("waits for a confirmed in-flight append and stays open when it fails", async () => {
     const append = deferred<void>();
-    const confirmClose = vi
-      .fn()
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    const confirmClose = vi.fn().mockResolvedValue(true);
     const store = createEditorStore({
       repository: repository({ appendOperation: vi.fn(() => append.promise) }),
       createId: () => "stroke-1",
@@ -230,19 +266,180 @@ describe("EditorStore", () => {
     });
     await store.openProject("project-1");
     const saving = store.commitStroke(samples);
+    const closing = store.closeProject();
 
-    await store.closeProject();
     expect(confirmClose).toHaveBeenCalledTimes(1);
     expect(store.getSnapshot().view).toBe("editor");
 
-    await store.closeProject();
-    expect(confirmClose).toHaveBeenCalledTimes(2);
-    expect(store.getSnapshot().view).toBe("gallery");
-    expect(store.getSnapshot().saveStatus).toBe("saving");
+    append.reject(new Error("device removed"));
+    await Promise.all([saving, closing]);
 
-    append.resolve();
-    await saving;
+    expect(store.getSnapshot()).toMatchObject({
+      view: "editor",
+      saveStatus: "error",
+      saveError: "device removed",
+      document: { strokes: [{ operationId: "stroke-1" }] },
+    });
+  });
+
+  it.each(["success", "failure"] as const)(
+    "isolates an old project's %s completion from the active project",
+    async (outcome) => {
+      const projectAAppend = deferred<void>();
+      const projectBAppend = deferred<void>();
+      const projectRepository = repository({
+        loadProject: vi.fn(async (projectId) =>
+          createDocumentFixture(projectId, `Project ${projectId}`),
+        ),
+        appendOperation: vi.fn((operation: DocumentOperation) =>
+          operation.projectId === "project-a"
+            ? projectAAppend.promise
+            : projectBAppend.promise,
+        ),
+      });
+      const ids = ["stroke-a", "stroke-b"];
+      const store = createEditorStore({
+        repository: projectRepository,
+        createId: () => ids.shift() ?? "unexpected-id",
+      });
+      await store.openProject("project-a");
+      const savingA = store.commitStroke(samples);
+      await store.openProject("project-b");
+      const savingB = store.commitStroke(samples);
+
+      if (outcome === "success") {
+        projectAAppend.resolve();
+      } else {
+        projectAAppend.reject(new Error("A failed"));
+      }
+      await savingA;
+
+      expect(store.getSnapshot()).toMatchObject({
+        view: "editor",
+        saveStatus: "saving",
+        saveError: null,
+        document: { projectId: "project-b" },
+      });
+
+      projectBAppend.resolve();
+      await savingB;
+      expect(store.getSnapshot()).toMatchObject({
+        saveStatus: "saved",
+        saveError: null,
+        document: { projectId: "project-b" },
+      });
+    },
+  );
+
+  it("lets the latest open win when project loads resolve out of order", async () => {
+    const projectA = deferred<DesignDocument>();
+    const projectB = deferred<DesignDocument>();
+    const activeRenderer = renderer();
+    const store = createEditorStore({
+      repository: repository({
+        loadProject: vi.fn((projectId) =>
+          projectId === "project-a" ? projectA.promise : projectB.promise,
+        ),
+      }),
+      renderer: activeRenderer,
+    });
+
+    const openingA = store.openProject("project-a");
+    const openingB = store.openProject("project-b");
+    expect(store.getSnapshot().navigationBusy).toBe(true);
+
+    projectB.resolve(createDocumentFixture("project-b", "B"));
+    await openingB;
+    projectA.resolve(createDocumentFixture("project-a", "A"));
+    await openingA;
+
+    expect(store.getSnapshot()).toMatchObject({
+      navigationBusy: false,
+      document: { projectId: "project-b" },
+    });
+    expect(activeRenderer.replaceDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a stale create replace a newer open", async () => {
+    const creating = deferred<void>();
+    const activeRenderer = renderer();
+    const store = createEditorStore({
+      repository: repository({
+        createProject: vi.fn(() => creating.promise),
+        loadProject: vi.fn(async () =>
+          createDocumentFixture("project-b", "Project B"),
+        ),
+      }),
+      renderer: activeRenderer,
+      createId: () => "project-a",
+    });
+
+    const create = store.createProject("Project A");
+    const open = store.openProject("project-b");
+    await open;
+    creating.resolve();
+    await create;
+
+    expect(store.getSnapshot()).toMatchObject({
+      navigationBusy: false,
+      document: { projectId: "project-b" },
+    });
+    expect(activeRenderer.replaceDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares overlapping retry waves and retries each failed operation once", async () => {
+    const retryFirst = deferred<void>();
+    const retrySecond = deferred<void>();
+    const appendOperation = vi
+      .fn<(operation: DocumentOperation) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("first failed"))
+      .mockRejectedValueOnce(new Error("second failed"))
+      .mockImplementationOnce(() => retryFirst.promise)
+      .mockImplementationOnce(() => retrySecond.promise);
+    const ids = ["stroke-1", "stroke-2"];
+    const store = createEditorStore({
+      repository: repository({ appendOperation }),
+      createId: () => ids.shift() ?? "unexpected-id",
+    });
+    await store.openProject("project-1");
+    await store.commitStroke(samples);
+    await store.commitStroke(samples);
+
+    const firstWave = store.retrySave();
+    const overlappingWave = store.retrySave();
+    expect(appendOperation).toHaveBeenCalledTimes(3);
+
+    retryFirst.resolve();
+    await vi.waitFor(() => expect(appendOperation).toHaveBeenCalledTimes(4));
+    retrySecond.resolve();
+    await Promise.all([firstWave, overlappingWave]);
+
+    expect(
+      appendOperation.mock.calls.map(([operation]) => operation.operationId),
+    ).toEqual(["stroke-1", "stroke-2", "stroke-1", "stroke-2"]);
     expect(store.getSnapshot().saveStatus).toBe("saved");
+  });
+
+  it("requests repaint for replay and undo but not for stroke commit", async () => {
+    const activeRenderer = renderer();
+    const requestRender = vi.fn();
+    const ids = ["stroke-1", "undo-1"];
+    const store = createEditorStore({
+      repository: repository({
+        loadProject: vi.fn(async () => recoveredDocument()),
+      }),
+      createId: () => ids.shift() ?? "unexpected-id",
+    });
+    store.attachRenderer(activeRenderer, requestRender);
+
+    await store.openProject("project-1");
+    expect(requestRender).toHaveBeenCalledTimes(1);
+
+    await store.commitStroke(samples);
+    expect(requestRender).toHaveBeenCalledTimes(1);
+
+    await store.undoLastStroke();
+    expect(requestRender).toHaveBeenCalledTimes(2);
   });
 
   it("measures append latency that exceeds the durability budget", async () => {

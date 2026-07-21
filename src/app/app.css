@@ -138,6 +138,12 @@ canvas:focus-visible {
   background: var(--color-accent-hover);
 }
 
+.primary-action:disabled,
+.project-tile:disabled {
+  cursor: progress;
+  opacity: 0.62;
+}
+
 .primary-action:active {
   transform: translateY(1px);
 }
@@ -337,7 +343,7 @@ canvas:focus-visible {
 
 .drawing-surface__actions {
   position: absolute;
-  right: 20px;
+  inset-inline-end: max(20px, env(safe-area-inset-right));
   bottom: max(20px, env(safe-area-inset-bottom));
 }
 
@@ -364,7 +370,7 @@ canvas:focus-visible {
 .compatibility-notice {
   position: absolute;
   bottom: max(20px, env(safe-area-inset-bottom));
-  left: 20px;
+  inset-inline-start: max(20px, env(safe-area-inset-left));
   max-width: 260px;
   margin: 0;
   border-inline-start: 2px solid var(--color-accent);
@@ -406,11 +412,13 @@ canvas:focus-visible {
   }
 
   .gallery-footer {
-    padding-inline: max(20px, env(safe-area-inset-left));
+    padding-inline: max(20px, env(safe-area-inset-left))
+      max(20px, env(safe-area-inset-right));
   }
 
   .editor-shell {
-    padding-inline: 0;
+    padding-inline: env(safe-area-inset-left, 0px)
+      env(safe-area-inset-right, 0px);
   }
 
   .editor-header {
@@ -439,13 +447,13 @@ canvas:focus-visible {
   }
 
   .drawing-surface__actions {
-    right: 12px;
+    inset-inline-end: max(12px, env(safe-area-inset-right));
     bottom: max(12px, env(safe-area-inset-bottom));
   }
 
   .compatibility-notice {
     bottom: max(12px, env(safe-area-inset-bottom));
-    left: 12px;
+    inset-inline-start: max(12px, env(safe-area-inset-left));
   }
 }
 

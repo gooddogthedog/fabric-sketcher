@@ -23,6 +23,7 @@ export type EditorSnapshot = Readonly<{
   document: DesignDocument | null;
   saveStatus: EditorSaveStatus;
   saveError: string | null;
+  navigationBusy: boolean;
 }>;
 
 export type EditorPerformance = Readonly<{
@@ -47,6 +48,8 @@ type PendingWrite = {
   operation: DocumentOperation;
   state: "saving" | "error";
   startedAt: number;
+  error: string | null;
+  attempt: Promise<void> | null;
 };
 
 const DURABILITY_BUDGET_MS = 250;
@@ -69,14 +72,19 @@ export class EditorStore {
   readonly #confirmClose: () => boolean | Promise<boolean>;
   readonly #brush: BrushSnapshot;
   readonly #listeners = new Set<() => void>();
-  readonly #pendingWrites = new Map<string, PendingWrite>();
+  readonly #pendingWrites = new Map<string, Map<string, PendingWrite>>();
+  readonly #retryWaves = new Map<string, Promise<void>>();
+  readonly #documents = new Map<string, DesignDocument>();
   #renderer: Renderer | null;
+  #requestRender: () => void = () => undefined;
+  #navigationGeneration = 0;
   #snapshot: EditorSnapshot = Object.freeze({
     view: "gallery",
     projects: Object.freeze([] as ProjectSummary[]),
     document: null,
     saveStatus: "saved",
     saveError: null,
+    navigationBusy: false,
   });
 
   public constructor(options: EditorStoreOptions) {
@@ -102,15 +110,36 @@ export class EditorStore {
   }
 
   public async createProject(title = "Untitled Design"): Promise<void> {
+    const generation = this.#beginNavigation();
     const document = createDocument({ projectId: this.#createId(), title });
-    await this.#repository.createProject(document);
-    const projects = await this.#repository.listProjects();
-    this.#openDocument(document, projects);
+    try {
+      await this.#repository.createProject(document);
+      if (!this.#isCurrentNavigation(generation)) return;
+      const projects = await this.#repository.listProjects();
+      if (!this.#isCurrentNavigation(generation)) return;
+      this.#documents.set(document.projectId, document);
+      this.#openDocument(document, projects);
+    } finally {
+      this.#finishNavigation(generation);
+    }
   }
 
   public async openProject(projectId: string): Promise<void> {
-    const document = await this.#repository.loadProject(projectId);
-    this.#openDocument(document, this.#snapshot.projects);
+    const generation = this.#beginNavigation();
+    try {
+      const loadedDocument = await this.#repository.loadProject(projectId);
+      if (!this.#isCurrentNavigation(generation)) return;
+      const cachedDocument = this.#documents.get(projectId);
+      const document =
+        cachedDocument &&
+        cachedDocument.operationSequence >= loadedDocument.operationSequence
+          ? cachedDocument
+          : loadedDocument;
+      this.#documents.set(projectId, document);
+      this.#openDocument(document, this.#snapshot.projects);
+    } finally {
+      this.#finishNavigation(generation);
+    }
   }
 
   public commitStroke(samples: readonly PenSample[]): Promise<void> {
@@ -152,49 +181,85 @@ export class EditorStore {
     });
     const nextDocument = documentReducer(document, operation);
     this.#renderer?.replaceDocument(toRenderDocument(nextDocument));
+    this.#requestRender();
     return this.#queueOperation(operation, nextDocument, startedAt);
   }
 
   public async retrySave(): Promise<void> {
-    const failed = [...this.#pendingWrites.values()]
+    const projectId = this.#snapshot.document?.projectId;
+    if (!projectId) return;
+    const existingWave = this.#retryWaves.get(projectId);
+    if (existingWave) {
+      await existingWave;
+      return;
+    }
+
+    const failed = [...(this.#pendingWrites.get(projectId)?.values() ?? [])]
       .filter((entry) => entry.state === "error")
       .sort(
         (left, right) => left.operation.sequence - right.operation.sequence,
       );
+    if (failed.length === 0) return;
 
-    for (const entry of failed) {
-      entry.state = "saving";
-      entry.startedAt = this.#performance.now();
-      this.#publishSaveState();
-      await this.#persist(entry);
+    const wave = (async () => {
+      for (const entry of failed) {
+        entry.startedAt = this.#performance.now();
+        await this.#startAttempt(entry);
+      }
+    })();
+    this.#retryWaves.set(projectId, wave);
+    try {
+      await wave;
+    } finally {
+      if (this.#retryWaves.get(projectId) === wave) {
+        this.#retryWaves.delete(projectId);
+      }
     }
   }
 
   public async closeProject(): Promise<void> {
-    if (
-      this.#snapshot.saveStatus === "saving" &&
-      !(await this.#confirmClose())
-    ) {
-      return;
+    const projectId = this.#snapshot.document?.projectId;
+    if (!projectId) return;
+    const writes = this.#projectWrites(projectId);
+    if ([...writes].some((entry) => entry.state === "error")) return;
+
+    const attempts = [...writes]
+      .map((entry) => entry.attempt)
+      .filter((attempt): attempt is Promise<void> => attempt !== null);
+    if (attempts.length > 0) {
+      if (!(await this.#confirmClose())) return;
+      await Promise.all(attempts);
+      if (this.#snapshot.document?.projectId !== projectId) return;
+      if (this.#projectWrites(projectId).length > 0) return;
     }
 
+    this.#navigationGeneration += 1;
     this.#snapshot = Object.freeze({
       ...this.#snapshot,
       view: "gallery",
       document: null,
+      saveStatus: "saved",
+      saveError: null,
+      navigationBusy: false,
     });
     this.#emit();
     void this.loadProjects().catch(() => undefined);
   }
 
-  public attachRenderer(renderer: Renderer): () => void {
+  public attachRenderer(
+    renderer: Renderer,
+    requestRender: () => void = () => undefined,
+  ): () => void {
     this.#renderer = renderer;
+    this.#requestRender = requestRender;
     if (this.#snapshot.document) {
       renderer.replaceDocument(toRenderDocument(this.#snapshot.document));
+      requestRender();
     }
     return () => {
       if (this.#renderer === renderer) {
         this.#renderer = null;
+        this.#requestRender = () => undefined;
       }
     };
   }
@@ -204,12 +269,14 @@ export class EditorStore {
     projects: readonly ProjectSummary[],
   ): void {
     this.#renderer?.replaceDocument(toRenderDocument(document));
+    this.#requestRender();
+    const saveState = this.#saveState(document.projectId);
     this.#snapshot = Object.freeze({
       view: "editor",
       projects: Object.freeze([...projects]),
       document,
-      saveStatus: "saved",
-      saveError: null,
+      ...saveState,
+      navigationBusy: false,
     });
     this.#emit();
   }
@@ -219,8 +286,15 @@ export class EditorStore {
     document: DesignDocument,
     startedAt: number,
   ): Promise<void> {
-    const entry: PendingWrite = { operation, state: "saving", startedAt };
-    this.#pendingWrites.set(operation.operationId, entry);
+    const entry: PendingWrite = {
+      operation,
+      state: "saving",
+      startedAt,
+      error: null,
+      attempt: null,
+    };
+    this.#writesFor(operation.projectId).set(operation.operationId, entry);
+    this.#documents.set(operation.projectId, document);
     this.#snapshot = Object.freeze({
       ...this.#snapshot,
       document,
@@ -228,23 +302,42 @@ export class EditorStore {
       saveError: null,
     });
     this.#emit();
-    return this.#persist(entry);
+    return this.#startAttempt(entry);
   }
 
-  async #persist(entry: PendingWrite): Promise<void> {
-    try {
-      await this.#repository.appendOperation(entry.operation);
-      this.#measureDurability(entry.startedAt);
-      this.#pendingWrites.delete(entry.operation.operationId);
-    } catch (error) {
-      this.#measureDurability(entry.startedAt);
-      entry.state = "error";
-      this.#snapshot = Object.freeze({
-        ...this.#snapshot,
-        saveError: errorMessage(error),
-      });
-    }
+  #startAttempt(entry: PendingWrite): Promise<void> {
+    if (entry.attempt) return entry.attempt;
+    entry.state = "saving";
+    entry.error = null;
     this.#publishSaveState();
+    let persistence: Promise<void>;
+    try {
+      persistence = Promise.resolve(
+        this.#repository.appendOperation(entry.operation),
+      );
+    } catch (error) {
+      persistence = Promise.reject(error);
+    }
+    const attempt = persistence
+      .then(() => {
+        this.#measureDurability(entry.startedAt);
+        const writes = this.#pendingWrites.get(entry.operation.projectId);
+        writes?.delete(entry.operation.operationId);
+        if (writes?.size === 0) {
+          this.#pendingWrites.delete(entry.operation.projectId);
+        }
+      })
+      .catch((error: unknown) => {
+        this.#measureDurability(entry.startedAt);
+        entry.state = "error";
+        entry.error = errorMessage(error);
+      })
+      .finally(() => {
+        entry.attempt = null;
+        this.#publishSaveState();
+      });
+    entry.attempt = attempt;
+    return attempt;
   }
 
   #measureDurability(startedAt: number): void {
@@ -262,18 +355,13 @@ export class EditorStore {
   }
 
   #publishSaveState(): void {
-    const pending = [...this.#pendingWrites.values()];
-    const saveStatus: EditorSaveStatus = pending.some(
-      (entry) => entry.state === "error",
-    )
-      ? "error"
-      : pending.length > 0
-        ? "saving"
-        : "saved";
+    const projectId = this.#snapshot.document?.projectId;
+    const saveState = projectId
+      ? this.#saveState(projectId)
+      : { saveStatus: "saved" as const, saveError: null };
     this.#snapshot = Object.freeze({
       ...this.#snapshot,
-      saveStatus,
-      saveError: saveStatus === "error" ? this.#snapshot.saveError : null,
+      ...saveState,
     });
     this.#emit();
   }
@@ -294,6 +382,49 @@ export class EditorStore {
     for (const listener of this.#listeners) {
       listener();
     }
+  }
+
+  #beginNavigation(): number {
+    const generation = ++this.#navigationGeneration;
+    this.#update({ navigationBusy: true });
+    return generation;
+  }
+
+  #finishNavigation(generation: number): void {
+    if (!this.#isCurrentNavigation(generation)) return;
+    if (this.#snapshot.navigationBusy) {
+      this.#update({ navigationBusy: false });
+    }
+  }
+
+  #isCurrentNavigation(generation: number): boolean {
+    return this.#navigationGeneration === generation;
+  }
+
+  #writesFor(projectId: string): Map<string, PendingWrite> {
+    const existing = this.#pendingWrites.get(projectId);
+    if (existing) return existing;
+    const writes = new Map<string, PendingWrite>();
+    this.#pendingWrites.set(projectId, writes);
+    return writes;
+  }
+
+  #projectWrites(projectId: string): readonly PendingWrite[] {
+    return [...(this.#pendingWrites.get(projectId)?.values() ?? [])];
+  }
+
+  #saveState(
+    projectId: string,
+  ): Pick<EditorSnapshot, "saveStatus" | "saveError"> {
+    const writes = this.#projectWrites(projectId);
+    const failed = writes.find((entry) => entry.state === "error");
+    if (failed) {
+      return { saveStatus: "error", saveError: failed.error };
+    }
+    if (writes.length > 0) {
+      return { saveStatus: "saving", saveError: null };
+    }
+    return { saveStatus: "saved", saveError: null };
   }
 }
 

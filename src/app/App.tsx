@@ -34,5 +34,11 @@ export function App({ store = defaultStore, rendererFactory }: AppProps) {
     );
   }
 
-  return <ProjectGallery projects={snapshot.projects} store={store} />;
+  return (
+    <ProjectGallery
+      navigationBusy={snapshot.navigationBusy}
+      projects={snapshot.projects}
+      store={store}
+    />
+  );
 }

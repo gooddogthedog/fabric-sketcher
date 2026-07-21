@@ -12,10 +12,19 @@ import { createDocument } from "../../domain/document/createDocument";
 import type { DocumentOperation } from "../../domain/document/types";
 import type { Renderer } from "../../engine/render/Renderer";
 import type { RendererSelection } from "../../engine/render/createRenderer";
-import { identity, type Matrix3 } from "../../engine/math/affine";
+import {
+  identity,
+  invert,
+  transformPoint,
+  type Matrix3,
+} from "../../engine/math/affine";
 import type { ProjectRepository } from "../../platform/persistence/types";
 import { createEditorStore, type EditorStore } from "../../state/editorStore";
-import type { DrawingViewport } from "./createDrawingController";
+import {
+  createDrawingController,
+  type DrawingViewport,
+  type DrawingViewportFactory,
+} from "./createDrawingController";
 import { DrawingSurface } from "./DrawingSurface";
 
 type ObserverRecord = Readonly<{
@@ -183,7 +192,18 @@ function renderSurface(
   store: EditorStore,
   renderer: Renderer,
   viewport: DrawingViewport,
-  options: Readonly<{ rawUpdates?: boolean }> = {},
+  options: Readonly<{
+    rawUpdates?: boolean;
+    bounds?: Readonly<{
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+    }>;
+    onViewportOptions?: (
+      options: Parameters<DrawingViewportFactory>[0],
+    ) => void;
+  }> = {},
 ) {
   let activeSurface: HTMLCanvasElement | null = null;
   const rendererFactory = vi.fn((candidate: HTMLCanvasElement) => {
@@ -196,6 +216,16 @@ function renderSurface(
     }
     surface.setPointerCapture = vi.fn();
     surface.releasePointerCapture = vi.fn();
+    if (options.bounds) {
+      surface.getBoundingClientRect = vi.fn(() => ({
+        ...options.bounds,
+        x: options.bounds?.left ?? 0,
+        y: options.bounds?.top ?? 0,
+        right: (options.bounds?.left ?? 0) + (options.bounds?.width ?? 0),
+        bottom: (options.bounds?.top ?? 0) + (options.bounds?.height ?? 0),
+        toJSON: () => undefined,
+      })) as unknown as typeof surface.getBoundingClientRect;
+    }
     candidate.replaceWith(surface);
     activeSurface = surface;
     return selection(renderer, surface);
@@ -206,7 +236,10 @@ function renderSurface(
       document={store.getSnapshot().document!}
       rendererFactory={rendererFactory}
       store={store}
-      viewportFactory={() => viewport}
+      viewportFactory={(viewportOptions) => {
+        options.onViewportOptions?.(viewportOptions);
+        return viewport;
+      }}
     />,
   );
 
@@ -287,6 +320,191 @@ describe("DrawingSurface", () => {
     expect(viewport.onPointerUp).toHaveBeenCalledTimes(1);
     expect(renderer.previewStroke).not.toHaveBeenCalled();
     expect(repository.appendOperation).not.toHaveBeenCalled();
+  });
+
+  it("normalizes offset-surface Pencil and touch contacts into one local space", async () => {
+    const store = await openStore(projectRepository());
+    const viewport = mockViewport();
+    let getActivePencilContact:
+      | Parameters<DrawingViewportFactory>[0]["getActivePencilContact"]
+      | undefined;
+    const view = renderSurface(store, mockRenderer(), viewport, {
+      bounds: { left: 100, top: 50, width: 640, height: 480 },
+      onViewportOptions: (options) => {
+        getActivePencilContact = options.getActivePencilContact;
+      },
+    });
+
+    fireEvent(view.surface, pointerEvent("pointerdown", sample(150, 100, 100)));
+    expect(getActivePencilContact?.()).toEqual({ x: 50, y: 50 });
+
+    fireEvent(
+      view.surface,
+      pointerEvent("pointerdown", {
+        pointerId: 3,
+        pointerType: "touch",
+        clientX: 155,
+        clientY: 105,
+        width: 60,
+        height: 50,
+      }),
+    );
+    fireEvent(
+      view.surface,
+      pointerEvent("pointermove", {
+        pointerId: 3,
+        pointerType: "touch",
+        clientX: 175,
+        clientY: 125,
+        width: 60,
+        height: 50,
+      }),
+    );
+
+    expect(viewport.onPointerDown).toHaveBeenCalledWith(
+      expect.objectContaining({ clientX: 55, clientY: 55 }),
+    );
+    expect(viewport.onPointerMove).toHaveBeenCalledWith(
+      expect.objectContaining({ clientX: 75, clientY: 75 }),
+    );
+  });
+
+  it("keeps an offset-canvas pinch anchored without a coordinate-space jump", () => {
+    const surface = document.createElement("canvas");
+    surface.setPointerCapture = vi.fn();
+    surface.releasePointerCapture = vi.fn();
+    surface.getBoundingClientRect = vi.fn(() => ({
+      left: 100,
+      top: 50,
+      x: 100,
+      y: 50,
+      width: 640,
+      height: 480,
+      right: 740,
+      bottom: 530,
+      toJSON: () => undefined,
+    })) as unknown as typeof surface.getBoundingClientRect;
+    const renderer = mockRenderer();
+    let nextFrame = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    const controller = createDrawingController({
+      surface,
+      renderer,
+      document: createDocument({
+        projectId: "project-1",
+        title: "Offset pinch",
+      }),
+      commitStroke: vi.fn(),
+      requestFrame: (callback) => {
+        const id = ++nextFrame;
+        frames.set(id, callback);
+        return id;
+      },
+      cancelFrame: (id) => frames.delete(id),
+    });
+    const flushFrames = () => {
+      while (frames.size > 0) {
+        const pending = [...frames.entries()];
+        frames.clear();
+        for (const [, callback] of pending) callback(0);
+      }
+    };
+    flushFrames();
+    const baseline = vi.mocked(renderer.setViewport).mock.lastCall?.[0];
+    if (!baseline) throw new Error("Expected an initial viewport matrix.");
+
+    surface.dispatchEvent(
+      pointerEvent("pointerdown", {
+        pointerId: 1,
+        pointerType: "touch",
+        clientX: 200,
+        clientY: 150,
+        width: 10,
+        height: 10,
+      }),
+    );
+    surface.dispatchEvent(
+      pointerEvent("pointerdown", {
+        pointerId: 2,
+        pointerType: "touch",
+        clientX: 300,
+        clientY: 150,
+        width: 10,
+        height: 10,
+      }),
+    );
+    expect(vi.mocked(renderer.setViewport).mock.lastCall?.[0]).toEqual(
+      baseline,
+    );
+
+    surface.dispatchEvent(
+      pointerEvent("pointermove", {
+        pointerId: 1,
+        pointerType: "touch",
+        clientX: 175,
+        clientY: 150,
+        width: 10,
+        height: 10,
+      }),
+    );
+    surface.dispatchEvent(
+      pointerEvent("pointermove", {
+        pointerId: 2,
+        pointerType: "touch",
+        clientX: 325,
+        clientY: 150,
+        width: 10,
+        height: 10,
+      }),
+    );
+    flushFrames();
+
+    const next = vi.mocked(renderer.setViewport).mock.lastCall?.[0];
+    if (!next) throw new Error("Expected a gesture viewport matrix.");
+    const localCentroid = { x: 150, y: 100 };
+    const anchoredDocumentPoint = transformPoint(
+      invert(baseline),
+      localCentroid,
+    );
+    const transformedAnchor = transformPoint(next, anchoredDocumentPoint);
+    expect(transformedAnchor.x).toBeCloseTo(localCentroid.x, 8);
+    expect(transformedAnchor.y).toBeCloseTo(localCentroid.y, 8);
+    controller.dispose();
+  });
+
+  it("coalesces a stroke commit render and schedules a repaint for undo", async () => {
+    let nextFrame = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++nextFrame;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+    const flushFrames = () => {
+      while (frames.size > 0) {
+        const pending = [...frames.entries()];
+        frames.clear();
+        for (const [, callback] of pending) callback(0);
+      }
+    };
+    const store = await openStore(projectRepository());
+    const renderer = mockRenderer();
+    const view = renderSurface(store, renderer, mockViewport());
+    flushFrames();
+    renderer.render.mockClear();
+
+    fireEvent(view.surface, pointerEvent("pointerdown", sample(10, 20, 100)));
+    fireEvent(view.surface, pointerEvent("pointerup", sample(30, 40, 110)));
+    flushFrames();
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    renderer.render.mockClear();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Undo last stroke" }),
+    );
+    flushFrames();
+    expect(renderer.render).toHaveBeenCalledTimes(1);
   });
 
   it("clears a canceled Pencil preview without persisting it", async () => {

@@ -38,6 +38,7 @@ export type DrawingViewportFactory = (
 
 export type DrawingController = Readonly<{
   dispose: () => void;
+  requestRender: () => void;
 }>;
 
 export type CreateDrawingControllerOptions = Readonly<{
@@ -116,7 +117,7 @@ export function createDrawingController(
   const handlePointerDown = (event: PointerEvent) => {
     if (event.pointerType === "touch") {
       event.preventDefault();
-      viewport.onPointerDown(toContact(event));
+      viewport.onPointerDown(toContact(event, surface));
       capturePointer(surface, event.pointerId);
       return;
     }
@@ -124,7 +125,7 @@ export function createDrawingController(
       return;
     }
     event.preventDefault();
-    activePencilContact = { x: event.clientX, y: event.clientY };
+    activePencilContact = toLocalPoint(event, surface);
     capturePointer(surface, event.pointerId);
     strokeSession.handle(toInputBatch(event, "down", surface, viewport));
   };
@@ -132,21 +133,21 @@ export function createDrawingController(
   const handlePointerMove = (event: PointerEvent) => {
     if (event.pointerType === "touch") {
       event.preventDefault();
-      viewport.onPointerMove(toContact(event));
+      viewport.onPointerMove(toContact(event, surface));
       return;
     }
     if (event.pointerType !== "pen") {
       return;
     }
     event.preventDefault();
-    activePencilContact = { x: event.clientX, y: event.clientY };
+    activePencilContact = toLocalPoint(event, surface);
     strokeSession.handle(toInputBatch(event, "move", surface, viewport));
   };
 
   const handlePointerUp = (event: PointerEvent) => {
     if (event.pointerType === "touch") {
       event.preventDefault();
-      viewport.onPointerUp(toContact(event));
+      viewport.onPointerUp(toContact(event, surface));
       releasePointer(surface, event.pointerId);
       return;
     }
@@ -154,7 +155,7 @@ export function createDrawingController(
       return;
     }
     event.preventDefault();
-    activePencilContact = { x: event.clientX, y: event.clientY };
+    activePencilContact = toLocalPoint(event, surface);
     strokeSession.handle(toInputBatch(event, "up", surface, viewport));
     activePencilContact = null;
     releasePointer(surface, event.pointerId);
@@ -163,7 +164,7 @@ export function createDrawingController(
   const handlePointerCancel = (event: PointerEvent) => {
     if (event.pointerType === "touch") {
       event.preventDefault();
-      viewport.onPointerCancel(toContact(event));
+      viewport.onPointerCancel(toContact(event, surface));
       releasePointer(surface, event.pointerId);
       return;
     }
@@ -178,7 +179,7 @@ export function createDrawingController(
 
   const handleLostPointerCapture = (event: PointerEvent) => {
     if (event.pointerType === "touch") {
-      viewport.onPointerCancel(toContact(event));
+      viewport.onPointerCancel(toContact(event, surface));
     } else if (event.pointerType === "pen") {
       strokeSession.lostPointerCapture(event.pointerId);
       activePencilContact = null;
@@ -235,6 +236,7 @@ export function createDrawingController(
   resize(initialBounds.width, initialBounds.height);
 
   return Object.freeze({
+    requestRender: scheduleRender,
     dispose: () => {
       if (disposed) {
         return;
@@ -272,14 +274,29 @@ function toInputBatch(
   });
 }
 
-function toContact(event: PointerEvent): PointerContact {
+function toContact(
+  event: PointerEvent,
+  surface: HTMLCanvasElement,
+): PointerContact {
+  const localPoint = toLocalPoint(event, surface);
   return {
     pointerId: event.pointerId,
     pointerType: event.pointerType,
-    clientX: event.clientX,
-    clientY: event.clientY,
+    clientX: localPoint.x,
+    clientY: localPoint.y,
     width: event.width,
     height: event.height,
+  };
+}
+
+function toLocalPoint(
+  event: Pick<PointerEvent, "clientX" | "clientY">,
+  surface: HTMLCanvasElement,
+): Point2D {
+  const bounds = surface.getBoundingClientRect();
+  return {
+    x: event.clientX - bounds.left,
+    y: event.clientY - bounds.top,
   };
 }
 

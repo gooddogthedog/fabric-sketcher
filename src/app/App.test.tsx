@@ -136,6 +136,10 @@ describe("App", () => {
     expect(
       screen.getByRole("heading", { name: "Fabric Sketcher" }),
     ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "New blank design" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "true");
 
     await act(async () => persistence.resolve());
 

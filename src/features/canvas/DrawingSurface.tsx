@@ -48,7 +48,6 @@ export function DrawingSurface({
     surface.setAttribute("aria-label", `Drawing canvas for ${title}`);
     surface.style.touchAction = "none";
 
-    const detachRenderer = store.attachRenderer(selection.renderer);
     const controller = createDrawingController({
       surface,
       renderer: selection.renderer,
@@ -62,6 +61,10 @@ export function DrawingSurface({
       commitStroke: store.commitStroke.bind(store),
       viewportFactory,
     });
+    const detachRenderer = store.attachRenderer(
+      selection.renderer,
+      controller.requestRender,
+    );
     setCompatibilityMode(selection.renderer.kind === "canvas2d-compat");
     surface.focus({ preventScroll: true });
 

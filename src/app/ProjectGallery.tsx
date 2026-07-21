@@ -5,9 +5,14 @@ import type { EditorStore } from "../state/editorStore";
 export type ProjectGalleryProps = Readonly<{
   projects: readonly ProjectSummary[];
   store: EditorStore;
+  navigationBusy: boolean;
 }>;
 
-export function ProjectGallery({ projects, store }: ProjectGalleryProps) {
+export function ProjectGallery({
+  projects,
+  store,
+  navigationBusy,
+}: ProjectGalleryProps) {
   const storageStatusRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
@@ -15,7 +20,10 @@ export function ProjectGallery({ projects, store }: ProjectGalleryProps) {
   }, [store]);
 
   return (
-    <main className="gallery-shell">
+    <main
+      aria-busy={navigationBusy ? "true" : "false"}
+      className="gallery-shell"
+    >
       <header className="gallery-header">
         <h1>Fabric Sketcher</h1>
         <button
@@ -31,6 +39,7 @@ export function ProjectGallery({ projects, store }: ProjectGalleryProps) {
       <section className="gallery-content" aria-labelledby="recent-designs">
         <button
           className="primary-action"
+          disabled={navigationBusy}
           onClick={() => void store.createProject()}
           type="button"
         >
@@ -44,6 +53,7 @@ export function ProjectGallery({ projects, store }: ProjectGalleryProps) {
               <li key={project.projectId}>
                 <button
                   className="project-tile"
+                  disabled={navigationBusy}
                   onClick={() => void store.openProject(project.projectId)}
                   type="button"
                 >
