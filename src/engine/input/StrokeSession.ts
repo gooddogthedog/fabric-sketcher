@@ -20,8 +20,9 @@ export type StrokeSessionCallbacks = Readonly<{
     confirmed: readonly PenSample[],
     predicted: readonly PenSample[],
   ) => void;
-  onCommit: (samples: readonly PenSample[]) => void | Promise<void>;
+  onCommit: (samples: readonly PenSample[]) => void | PromiseLike<void>;
   onCancel: () => void;
+  onCommitError?: (error: unknown) => void;
 }>;
 
 type DrawingState = Extract<StrokeSessionState, { kind: "drawing" }>;
@@ -104,9 +105,17 @@ export class StrokeSession {
   private finish(batch: InputBatch): void {
     const state = this.#state as DrawingState;
     const samples = immutableSamples([...state.confirmed, ...batch.confirmed]);
-    this.#state = idleState;
-    this.#callbacks.onPreview(samples, emptySamples);
-    this.commit(samples);
+    this.#state = Object.freeze({
+      kind: "committing" as const,
+      pointerId: state.pointerId,
+      confirmed: samples,
+    });
+    try {
+      this.#callbacks.onPreview(emptySamples, emptySamples);
+      this.commit(samples);
+    } finally {
+      this.#state = idleState;
+    }
   }
 
   private cancel(): void {
@@ -123,15 +132,29 @@ export class StrokeSession {
   private commit(samples: readonly PenSample[]): void {
     try {
       const result = this.#callbacks.onCommit(samples);
-      if (result instanceof Promise) {
-        this.#pendingCommits.add(result);
-        void result.then(
-          () => this.#pendingCommits.delete(result),
-          () => this.#pendingCommits.delete(result),
-        );
+      if (result == null) {
+        return;
       }
+
+      const pending = Promise.resolve(result);
+      this.#pendingCommits.add(pending);
+      void pending.then(
+        () => this.#pendingCommits.delete(pending),
+        (error) => {
+          this.#pendingCommits.delete(pending);
+          this.reportCommitError(error);
+        },
+      );
+    } catch (error) {
+      this.reportCommitError(error);
+    }
+  }
+
+  private reportCommitError(error: unknown): void {
+    try {
+      this.#callbacks.onCommitError?.(error);
     } catch {
-      // Durability errors are owned by the persistence callback.
+      // Error reporting must not produce a new unhandled rejection.
     }
   }
 }
@@ -150,5 +173,5 @@ function drawingState(
 }
 
 function immutableSamples(samples: readonly PenSample[]): readonly PenSample[] {
-  return Object.freeze([...samples]);
+  return Object.freeze(samples.map((sample) => Object.freeze({ ...sample })));
 }
