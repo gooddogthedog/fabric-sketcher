@@ -22,19 +22,6 @@ export function App() {
           <span>New blank design</span>
         </button>
       </header>
-
-      <section
-        aria-labelledby="recent-designs-heading"
-        className="gallery-content"
-      >
-        <div className="gallery-heading-row">
-          <h2 id="recent-designs-heading">Recent designs</h2>
-          <button className="select-action" type="button">
-            Select
-          </button>
-        </div>
-        <p className="gallery-empty-state">Your work is saved on this iPad.</p>
-      </section>
     </main>
   );
 }

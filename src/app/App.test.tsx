@@ -12,4 +12,18 @@ describe("App", () => {
       screen.getByRole("button", { name: /new blank design/i }),
     ).toBeEnabled();
   });
+
+  it("does not expose unavailable project or persistence controls", () => {
+    render(<App />);
+
+    expect(
+      screen.queryByRole("heading", { name: /recent designs/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /select/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/your work is saved on this iPad/i),
+    ).not.toBeInTheDocument();
+  });
 });
