@@ -102,3 +102,38 @@ files generated
 
 None known. `PointerEventLike` is intentionally narrow and can be adapted by
 any browser-facing layer without leaking DOM types into the engine.
+
+## Review-fix RED / GREEN evidence
+
+The following focused RED/GREEN cycles address every review finding.
+
+| Finding | RED command and observed failure | GREEN change and result |
+| --- | --- | --- |
+| Chronological confirmed samples without mutating browser collection | `$ pnpm test -- src/engine/input/normalizePointerEvent.test.ts` failed: reversed x order was `[30, 20, 21, 10, 25]`, expected `[10, 20, 21, 25, 30]`. The test also retained an equality assertion on the original returned array. | A copied `PointerEventLike[]` is constructed, stable-sorted by `timeStamp`, then mapped. The final focused command passed `58` tests. |
+| Invalid runtime phase must reject before event reads | The same focused RED command failed: expected `RangeError('Unsupported pointer phase: "drag"')`, but no error was thrown. | `assertValidPhase` executes before type normalization or either event collection read. The test's read counter remains `0`; final focused command passed `58` tests. |
+| Duplicate host object references | The focused RED command failed: expected confirmed length `3`, received `4`. | Identity-aware copying inserts only the first host reference while preserving every non-host object, even equal-valued ones; final focused command passed `58` tests. |
+
+Requested final focused run:
+
+```text
+$ pnpm test -- src/engine/input/normalizePointerEvent.test.ts
+
+ RUN  v4.1.10 /Users/caleb/web-projects/home/fabric-sketcher/.worktrees/canvas-foundation
+
+ Test Files  7 passed (7)
+      Tests  58 passed (58)
+   Start at  00:36:05
+   Duration  1.91s (transform 640ms, setup 1.24s, import 775ms, tests 255ms, environment 6.92s)
+```
+
+## Review-fix self-review
+
+- Supersedes the earlier statement that confirmed order was not sorted:
+  confirmed input is now copied and stably sorted by timestamp, while the
+  browser-provided collection remains untouched.
+- Phase validation is the first operation in `normalizePointerEvent`, including
+  before the touch fast path, so invalid untyped adapter input cannot trigger
+  collection reads or be silently reinterpreted.
+- Host deduplication compares object identity only. It neither removes nor
+  merges distinct coalesced events that happen to carry identical values.
+- Existing pressure handling still uses `??`, preserving valid numeric zero.

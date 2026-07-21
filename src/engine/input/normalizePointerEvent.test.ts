@@ -39,6 +39,58 @@ describe("normalizePointerEvent", () => {
     expect(batch.confirmed.map((sample) => sample.time)).toEqual([10, 20, 30]);
   });
 
+  it("sorts a reversed coalesced copy chronologically without mutating it", () => {
+    const earliest = pointerEvent({ clientX: 10, timeStamp: 10 });
+    const firstAtTwenty = pointerEvent({ clientX: 20, timeStamp: 20 });
+    const secondAtTwenty = pointerEvent({ clientX: 21, timeStamp: 20 });
+    const latest = pointerEvent({ clientX: 30, timeStamp: 30 });
+    const coalesced = [latest, firstAtTwenty, secondAtTwenty, earliest];
+    const event = pointerEvent({
+      clientX: 25,
+      timeStamp: 20,
+      getCoalescedEvents: () => coalesced,
+    });
+
+    const batch = normalizePointerEvent(event, {
+      phase: "move",
+      surfaceBounds: { left: 0, top: 0 },
+      inverseViewportMatrix: identity(),
+    });
+
+    expect(batch.confirmed.map((sample) => sample.x)).toEqual([
+      10, 20, 21, 25, 30,
+    ]);
+    expect(coalesced).toEqual([
+      latest,
+      firstAtTwenty,
+      secondAtTwenty,
+      earliest,
+    ]);
+  });
+
+  it("rejects an invalid phase before reading browser event collections", () => {
+    let collectionReads = 0;
+    const event = pointerEvent({
+      getCoalescedEvents: () => {
+        collectionReads += 1;
+        return [];
+      },
+      getPredictedEvents: () => {
+        collectionReads += 1;
+        return [];
+      },
+    });
+
+    expect(() =>
+      normalizePointerEvent(event, {
+        phase: "drag" as never,
+        surfaceBounds: { left: 0, top: 0 },
+        inverseViewportMatrix: identity(),
+      }),
+    ).toThrowError(new RangeError('Unsupported pointer phase: "drag"'));
+    expect(collectionReads).toBe(0);
+  });
+
   it("includes the host event once when coalesced samples omit it", () => {
     const coalesced = pointerEvent({ clientX: 10, timeStamp: 10 });
     const event = pointerEvent({
@@ -54,6 +106,30 @@ describe("normalizePointerEvent", () => {
     });
 
     expect(batch.confirmed.map((sample) => sample.time)).toEqual([10, 20]);
+  });
+
+  it("deduplicates repeated host references without removing equal sample objects", () => {
+    const firstEqualSample = pointerEvent({ clientX: 10, timeStamp: 10 });
+    const secondEqualSample = pointerEvent({ clientX: 10, timeStamp: 10 });
+    const event = pointerEvent({
+      clientX: 10,
+      timeStamp: 10,
+      getCoalescedEvents: () => [
+        firstEqualSample,
+        event,
+        event,
+        secondEqualSample,
+      ],
+    });
+
+    const batch = normalizePointerEvent(event, {
+      phase: "move",
+      surfaceBounds: { left: 0, top: 0 },
+      inverseViewportMatrix: identity(),
+    });
+
+    expect(batch.confirmed).toHaveLength(3);
+    expect(batch.confirmed.map((sample) => sample.x)).toEqual([10, 10, 10]);
   });
 
   it("keeps predicted samples separate from confirmed history", () => {

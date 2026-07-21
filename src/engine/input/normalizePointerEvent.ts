@@ -18,6 +18,8 @@ export function normalizePointerEvent(
   event: PointerEventLike,
   options: NormalizePointerEventOptions,
 ): InputBatch {
+  assertValidPhase(options.phase);
+
   const pointerType = normalizePointerType(event.pointerType);
 
   if (pointerType === "touch") {
@@ -31,9 +33,26 @@ export function normalizePointerEvent(
   }
 
   const coalescedEvents = event.getCoalescedEvents?.() ?? [];
-  const confirmedEvents = coalescedEvents.includes(event)
-    ? coalescedEvents
-    : [...coalescedEvents, event];
+  const confirmedEvents: PointerEventLike[] = [];
+  let hasHostEvent = false;
+
+  for (const coalescedEvent of coalescedEvents) {
+    if (coalescedEvent === event) {
+      if (hasHostEvent) {
+        continue;
+      }
+
+      hasHostEvent = true;
+    }
+
+    confirmedEvents.push(coalescedEvent);
+  }
+
+  if (!hasHostEvent) {
+    confirmedEvents.push(event);
+  }
+
+  confirmedEvents.sort((left, right) => left.timeStamp - right.timeStamp);
 
   return {
     pointerId: event.pointerId,
@@ -44,6 +63,19 @@ export function normalizePointerEvent(
       toSample(sample, options),
     ),
   };
+}
+
+function assertValidPhase(phase: InputBatch["phase"]): void {
+  if (
+    phase === "down" ||
+    phase === "move" ||
+    phase === "up" ||
+    phase === "cancel"
+  ) {
+    return;
+  }
+
+  throw new RangeError(`Unsupported pointer phase: "${phase}"`);
 }
 
 function normalizePointerType(pointerType: string): InputBatch["pointerType"] {
