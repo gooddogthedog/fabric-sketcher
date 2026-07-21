@@ -70,6 +70,10 @@ export type ProjectRepositoryContractHarness = Readonly<{
   repository: ProjectRepository;
   setNow(isoTimestamp: string): void;
   corruptLatestSnapshot(projectId: string): Promise<void>;
+  replaceLatestSnapshot(
+    projectId: string,
+    snapshot: Readonly<Record<string, unknown>>,
+  ): Promise<void>;
   holdAppend(operationId: string): Readonly<{
     entered: Promise<void>;
     release(): void;
@@ -407,6 +411,98 @@ export function describeProjectRepositoryContract(
         }),
       );
       await harness.corruptLatestSnapshot("project-1");
+
+      await expect(
+        harness.repository.loadProject("project-1"),
+      ).resolves.toEqual(visible);
+    });
+
+    it("falls back when the newest parseable snapshot contains a null stroke", async () => {
+      const initial = createDocument({
+        projectId: "project-1",
+        title: "Null stroke fallback",
+      });
+      const committed = documentReducer(initial, stroke());
+      const hidden = documentReducer(committed, visibility());
+
+      await harness.repository.createProject(initial);
+      await harness.repository.appendOperation(stroke());
+      await harness.repository.writeSnapshot(committed);
+      await harness.repository.appendOperation(visibility());
+      await harness.repository.writeSnapshot(hidden);
+      await harness.replaceLatestSnapshot("project-1", {
+        ...hidden,
+        strokes: [null],
+      });
+
+      await expect(
+        harness.repository.loadProject("project-1"),
+      ).resolves.toEqual(hidden);
+    });
+
+    it("falls back when the newest parseable snapshot has a malformed nested sample", async () => {
+      const initial = createDocument({
+        projectId: "project-1",
+        title: "Nested sample fallback",
+      });
+      const committed = documentReducer(initial, stroke());
+      const hidden = documentReducer(committed, visibility());
+      const malformedStroke = {
+        ...stroke(),
+        samples: [
+          { ...stroke().samples[0], x: "not-a-number" },
+          stroke().samples[1],
+        ],
+      };
+
+      await harness.repository.createProject(initial);
+      await harness.repository.appendOperation(stroke());
+      await harness.repository.writeSnapshot(committed);
+      await harness.repository.appendOperation(visibility());
+      await harness.repository.writeSnapshot(hidden);
+      await harness.replaceLatestSnapshot("project-1", {
+        ...hidden,
+        strokes: [malformedStroke],
+      });
+
+      await expect(
+        harness.repository.loadProject("project-1"),
+      ).resolves.toEqual(hidden);
+    });
+
+    it("falls back when replay after the newest valid snapshot is semantically inconsistent", async () => {
+      const initial = createDocument({
+        projectId: "project-1",
+        title: "Replay fallback",
+      });
+      const committed = documentReducer(initial, stroke());
+      const hidden = documentReducer(committed, visibility());
+      const visible = documentReducer(
+        hidden,
+        visibility({
+          operationId: "visibility-2",
+          sequence: 3,
+          visible: true,
+        }),
+      );
+
+      await harness.repository.createProject(initial);
+      await harness.repository.appendOperation(stroke());
+      await harness.repository.writeSnapshot(committed);
+      await harness.repository.appendOperation(visibility());
+      await harness.repository.writeSnapshot(hidden);
+      await harness.repository.appendOperation(
+        visibility({
+          operationId: "visibility-2",
+          sequence: 3,
+          visible: true,
+        }),
+      );
+      await harness.replaceLatestSnapshot("project-1", {
+        ...hidden,
+        strokes: [stroke({ operationId: "other-stroke" })],
+        hiddenStrokeIds: [],
+      });
 
       await expect(
         harness.repository.loadProject("project-1"),

@@ -11,6 +11,7 @@ import { MemoryProjectRepository } from "./MemoryProjectRepository";
 import {
   BrowserProjectRepository,
   GzipSnapshotCodec,
+  NavigatorOpfsSnapshotFileStore,
 } from "./BrowserProjectRepository";
 import type { AtomicSnapshotFileStore, SnapshotCodec } from "./types";
 import type { DocumentOperation } from "../../domain/document/types";
@@ -85,6 +86,7 @@ class ControlledAppendHook {
 class FakeSnapshotFileStore implements AtomicSnapshotFileStore {
   readonly #files = new Map<string, Uint8Array>();
   #nextWriteFailure: Error | undefined;
+  #nextDeleteFailure: Error | undefined;
 
   async writeAtomically(path: string, contents: Uint8Array): Promise<void> {
     if (this.#nextWriteFailure) {
@@ -99,6 +101,10 @@ class FakeSnapshotFileStore implements AtomicSnapshotFileStore {
     this.#nextWriteFailure = error;
   }
 
+  failNextDelete(error: Error): void {
+    this.#nextDeleteFailure = error;
+  }
+
   async read(path: string): Promise<Uint8Array> {
     const contents = this.#files.get(path);
     if (!contents) {
@@ -108,6 +114,11 @@ class FakeSnapshotFileStore implements AtomicSnapshotFileStore {
   }
 
   async delete(path: string): Promise<void> {
+    if (this.#nextDeleteFailure) {
+      const failure = this.#nextDeleteFailure;
+      this.#nextDeleteFailure = undefined;
+      throw failure;
+    }
     this.#files.delete(path);
   }
 
@@ -119,6 +130,10 @@ class FakeSnapshotFileStore implements AtomicSnapshotFileStore {
   }
 
   async corruptLatest(projectId: string): Promise<void> {
+    await this.replaceLatest(projectId, new TextEncoder().encode("{corrupt"));
+  }
+
+  async replaceLatest(projectId: string, contents: Uint8Array): Promise<void> {
     const prefix = `projects/${projectId}/snapshots/`;
     const latestPath = [...this.#files.keys()]
       .filter((path) => path.startsWith(prefix))
@@ -127,7 +142,7 @@ class FakeSnapshotFileStore implements AtomicSnapshotFileStore {
     if (!latestPath) {
       throw new Error(`No snapshot exists for project ${projectId}.`);
     }
-    this.#files.set(latestPath, new TextEncoder().encode("{corrupt"));
+    this.#files.set(latestPath, contents.slice());
   }
 }
 
@@ -151,6 +166,120 @@ class FakeSnapshotCodec implements SnapshotCodec {
   }
 }
 
+type FakeOpfsFaults = {
+  nextCloseFailure?: Error;
+};
+
+class FakeOpfsWritableFile {
+  readonly #commit: (contents: Uint8Array) => void;
+  readonly #faults: FakeOpfsFaults;
+  #contents = new Uint8Array();
+  closeCount = 0;
+
+  constructor(commit: (contents: Uint8Array) => void, faults: FakeOpfsFaults) {
+    this.#commit = commit;
+    this.#faults = faults;
+  }
+
+  async write(contents: Uint8Array): Promise<void> {
+    this.#contents = contents.slice();
+  }
+
+  async close(): Promise<void> {
+    this.closeCount += 1;
+    if (this.#faults.nextCloseFailure) {
+      const failure = this.#faults.nextCloseFailure;
+      this.#faults.nextCloseFailure = undefined;
+      throw failure;
+    }
+    this.#commit(this.#contents);
+  }
+}
+
+class FakeOpfsFileHandle {
+  readonly #faults: FakeOpfsFaults;
+  #contents: Uint8Array | undefined;
+  latestWriter: FakeOpfsWritableFile | undefined;
+
+  constructor(faults: FakeOpfsFaults) {
+    this.#faults = faults;
+  }
+
+  async createWritable(): Promise<FakeOpfsWritableFile> {
+    const writer = new FakeOpfsWritableFile((contents) => {
+      this.#contents = contents.slice();
+    }, this.#faults);
+    this.latestWriter = writer;
+    return writer;
+  }
+
+  async getFile(): Promise<{ arrayBuffer(): Promise<ArrayBuffer> }> {
+    if (!this.#contents) {
+      throw new Error("Fake OPFS file has not been committed.");
+    }
+    const contents = this.#contents.slice();
+    return {
+      arrayBuffer: async () => contents.buffer,
+    };
+  }
+}
+
+class FakeOpfsDirectoryHandle {
+  readonly directories = new Map<string, FakeOpfsDirectoryHandle>();
+  readonly files = new Map<string, FakeOpfsFileHandle>();
+  readonly #faults: FakeOpfsFaults;
+
+  constructor(faults: FakeOpfsFaults = {}) {
+    this.#faults = faults;
+  }
+
+  async getDirectoryHandle(
+    name: string,
+    options?: { create?: boolean },
+  ): Promise<FakeOpfsDirectoryHandle> {
+    const existing = this.directories.get(name);
+    if (existing) {
+      return existing;
+    }
+    if (!options?.create) {
+      throw new Error(`Missing fake OPFS directory ${name}.`);
+    }
+    const directory = new FakeOpfsDirectoryHandle(this.#faults);
+    this.directories.set(name, directory);
+    return directory;
+  }
+
+  async getFileHandle(
+    name: string,
+    options?: { create?: boolean },
+  ): Promise<FakeOpfsFileHandle> {
+    const existing = this.files.get(name);
+    if (existing) {
+      return existing;
+    }
+    if (!options?.create) {
+      throw new Error(`Missing fake OPFS file ${name}.`);
+    }
+    const file = new FakeOpfsFileHandle(this.#faults);
+    this.files.set(name, file);
+    return file;
+  }
+
+  async removeEntry(name: string): Promise<void> {
+    if (!this.files.delete(name)) {
+      throw new Error(`Missing fake OPFS file ${name}.`);
+    }
+  }
+
+  fileAt(path: string): FakeOpfsFileHandle | undefined {
+    const [entry, ...remaining] = path.split("/");
+    if (remaining.length === 0) {
+      return this.files.get(entry);
+    }
+    return this.directories.get(entry)?.fileAt(remaining.join("/"));
+  }
+}
+
 describeProjectRepositoryContract("memory", () => {
   let now = "2026-07-21T00:00:00.000Z";
   const snapshotFiles = new FakeSnapshotFileStore();
@@ -167,6 +296,11 @@ describeProjectRepositoryContract("memory", () => {
     },
     corruptLatestSnapshot: (projectId) =>
       snapshotFiles.corruptLatest(projectId),
+    replaceLatestSnapshot: (projectId, snapshot) =>
+      snapshotFiles.replaceLatest(
+        projectId,
+        new TextEncoder().encode(JSON.stringify(snapshot)),
+      ),
     holdAppend: (operationId) => appends.hold(operationId),
     hasAppendStarted: (operationId) => appends.hasStarted(operationId),
     failNextAppend: (error) => appends.failNext(error),
@@ -196,6 +330,11 @@ describeProjectRepositoryContract("browser", () => {
     },
     corruptLatestSnapshot: (projectId) =>
       snapshotFiles.corruptLatest(projectId),
+    replaceLatestSnapshot: (projectId, snapshot) =>
+      snapshotFiles.replaceLatest(
+        projectId,
+        new TextEncoder().encode(JSON.stringify(snapshot)),
+      ),
     holdAppend: (operationId) => appends.hold(operationId),
     hasAppendStarted: (operationId) => appends.hasStarted(operationId),
     failNextAppend: (error) => appends.failNext(error),
@@ -220,6 +359,291 @@ async function deleteDatabase(databaseName: string): Promise<void> {
 }
 
 describe("BrowserProjectRepository IndexedDB integration", () => {
+  it("keeps memory snapshot confirmation successful when expired-file cleanup fails", async () => {
+    const snapshotFiles = new FakeSnapshotFileStore();
+    const repository = new MemoryProjectRepository({ snapshotFiles });
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Cleanup",
+    });
+    const committed = documentReducer(initial, stroke());
+    const hidden = documentReducer(committed, visibility());
+    const visible = {
+      ...documentReducer(
+        hidden,
+        visibility({
+          operationId: "visibility-2",
+          sequence: 3,
+          visible: true,
+        }),
+      ),
+      title: "Cleanup confirmed",
+    } as const;
+
+    await repository.createProject(initial);
+    await repository.appendOperation(stroke());
+    await repository.writeSnapshot(committed);
+    await repository.appendOperation(visibility());
+    await repository.writeSnapshot(hidden);
+    await repository.appendOperation(
+      visibility({
+        operationId: "visibility-2",
+        sequence: 3,
+        visible: true,
+      }),
+    );
+    snapshotFiles.failNextDelete(new Error("simulated cleanup failure"));
+
+    await expect(repository.writeSnapshot(visible)).resolves.toBeUndefined();
+    await expect(repository.loadProject("project-1")).resolves.toEqual(visible);
+    await expect(repository.listProjects()).resolves.toEqual([
+      expect.objectContaining({ title: "Cleanup confirmed" }),
+    ]);
+    await expect(repository.writeSnapshot(visible)).resolves.toBeUndefined();
+  });
+
+  it("writes, reads, and deletes OPFS snapshots only through safe paths and committed closes", async () => {
+    const root = new FakeOpfsDirectoryHandle();
+    const snapshots = new NavigatorOpfsSnapshotFileStore(async () => root);
+    const path = "projects/project-1/snapshots/1.json";
+    const contents = new TextEncoder().encode('{"schemaVersion":1}');
+
+    await snapshots.writeAtomically(path, contents);
+
+    expect([...(await snapshots.read(path))]).toEqual([...contents]);
+    expect(root.fileAt(path)?.latestWriter?.closeCount).toBe(1);
+    await expect(
+      snapshots.writeAtomically("projects/../escaped.json", contents),
+    ).rejects.toThrow("Unsafe OPFS snapshot path");
+
+    await snapshots.delete(path);
+    await expect(snapshots.read(path)).rejects.toThrow(
+      "Missing fake OPFS file",
+    );
+  });
+
+  it("uses navigator OPFS by default and encodes project IDs into one safe path segment", async () => {
+    const databaseName = `fabric-sketcher-default-opfs-${browserDatabaseSequence++}`;
+    const root = new FakeOpfsDirectoryHandle();
+    const projectId = "../unsafe/project";
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      environment: {
+        storage: {
+          getDirectory: async () => root,
+        },
+      },
+    });
+    const initial = createDocument({ projectId, title: "Safe OPFS path" });
+    const operation = stroke({
+      projectId,
+      layerId: `paint-layer:${projectId}`,
+    });
+    const committed = documentReducer(initial, operation);
+
+    try {
+      expect(repository.storageMode).toBe("opfs");
+      await repository.createProject(initial);
+      await repository.appendOperation(operation);
+      await repository.writeSnapshot(committed);
+
+      expect(
+        root.fileAt("projects/%2E%2E%2Funsafe%2Fproject/snapshots/1.json"),
+      ).toBeDefined();
+    } finally {
+      await repository.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
+  it("falls back to gzip IndexedDB when runtime OPFS is unavailable and remembers degradation", async () => {
+    const databaseName = `fabric-sketcher-runtime-degraded-${browserDatabaseSequence++}`;
+    let getDirectoryCount = 0;
+    const environment = {
+      storage: {
+        getDirectory: async (): Promise<FakeOpfsDirectoryHandle> => {
+          getDirectoryCount += 1;
+          throw new Error("simulated OPFS unavailable");
+        },
+      },
+    };
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Runtime degradation",
+    });
+    const committed = documentReducer(initial, stroke());
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      environment,
+    });
+    let reopenedRepository: BrowserProjectRepository | undefined;
+    let database: IDBDatabase | undefined;
+
+    try {
+      expect(repository.storageMode).toBe("opfs");
+      await repository.createProject(initial);
+      await repository.appendOperation(stroke());
+      await expect(
+        repository.writeSnapshot(committed),
+      ).resolves.toBeUndefined();
+      expect(repository.storageMode).toBe("indexeddb-degraded");
+      const attemptsAfterFallback = getDirectoryCount;
+      expect(attemptsAfterFallback).toBeGreaterThanOrEqual(1);
+
+      database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction(
+        ["snapshotIndex", "settings"],
+        "readonly",
+      );
+      const snapshot = await new Promise<Record<string, unknown>>(
+        (resolve, reject) => {
+          const request = transaction.objectStore("snapshotIndex").getAll();
+          request.onsuccess = () =>
+            resolve(request.result[0] as Record<string, unknown>);
+          request.onerror = () => reject(request.error);
+        },
+      );
+      const storageMode = await new Promise<Record<string, unknown>>(
+        (resolve, reject) => {
+          const request = transaction
+            .objectStore("settings")
+            .get("storageMode");
+          request.onsuccess = () =>
+            resolve(request.result as Record<string, unknown>);
+          request.onerror = () => reject(request.error);
+        },
+      );
+      expect(snapshot).toMatchObject({
+        location: "indexeddb",
+        encoding: "gzip-json-v1",
+      });
+      expect([
+        ...((snapshot.payload as Uint8Array | undefined)?.slice(0, 2) ?? []),
+      ]).toEqual([0x1f, 0x8b]);
+      expect(storageMode).toEqual({
+        name: "storageMode",
+        value: "indexeddb-degraded",
+      });
+      database.close();
+      database = undefined;
+      await repository.close();
+
+      reopenedRepository = new BrowserProjectRepository({
+        databaseName,
+        environment,
+      });
+      await expect(
+        reopenedRepository.loadProject("project-1"),
+      ).resolves.toEqual(committed);
+      expect(reopenedRepository.storageMode).toBe("indexeddb-degraded");
+      expect(getDirectoryCount).toBe(attemptsAfterFallback);
+    } finally {
+      database?.close();
+      await repository.close();
+      await reopenedRepository?.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
+  it("falls back when OPFS atomic close cannot commit the snapshot", async () => {
+    const databaseName = `fabric-sketcher-close-degraded-${browserDatabaseSequence++}`;
+    const root = new FakeOpfsDirectoryHandle({
+      nextCloseFailure: new Error("simulated OPFS close failure"),
+    });
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      environment: {
+        storage: { getDirectory: async () => root },
+      },
+    });
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Close degradation",
+    });
+    const committed = documentReducer(initial, stroke());
+
+    try {
+      await repository.createProject(initial);
+      await repository.appendOperation(stroke());
+      await expect(
+        repository.writeSnapshot(committed),
+      ).resolves.toBeUndefined();
+      expect(repository.storageMode).toBe("indexeddb-degraded");
+      await expect(repository.loadProject("project-1")).resolves.toEqual(
+        committed,
+      );
+    } finally {
+      await repository.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
+  it("degrades after runtime OPFS read unavailability and recovers through the journal", async () => {
+    const databaseName = `fabric-sketcher-read-degraded-${browserDatabaseSequence++}`;
+    const root = new FakeOpfsDirectoryHandle();
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Read degradation",
+    });
+    const committed = documentReducer(initial, stroke());
+    const writerRepository = new BrowserProjectRepository({
+      databaseName,
+      environment: {
+        storage: { getDirectory: async () => root },
+      },
+    });
+    let unavailableReadCount = 0;
+    const unavailableEnvironment = {
+      storage: {
+        getDirectory: async (): Promise<FakeOpfsDirectoryHandle> => {
+          unavailableReadCount += 1;
+          throw new Error("simulated OPFS read unavailability");
+        },
+      },
+    };
+    let degradedRepository: BrowserProjectRepository | undefined;
+    let reopenedRepository: BrowserProjectRepository | undefined;
+
+    try {
+      await writerRepository.createProject(initial);
+      await writerRepository.appendOperation(stroke());
+      await writerRepository.writeSnapshot(committed);
+      await writerRepository.close();
+
+      degradedRepository = new BrowserProjectRepository({
+        databaseName,
+        environment: unavailableEnvironment,
+      });
+      await expect(
+        degradedRepository.loadProject("project-1"),
+      ).resolves.toEqual(committed);
+      expect(degradedRepository.storageMode).toBe("indexeddb-degraded");
+      const attemptsAfterReadFallback = unavailableReadCount;
+      await degradedRepository.writeSnapshot(committed);
+      expect(unavailableReadCount).toBe(attemptsAfterReadFallback);
+      await degradedRepository.close();
+
+      reopenedRepository = new BrowserProjectRepository({
+        databaseName,
+        environment: unavailableEnvironment,
+      });
+      await expect(
+        reopenedRepository.loadProject("project-1"),
+      ).resolves.toEqual(committed);
+      expect(reopenedRepository.storageMode).toBe("indexeddb-degraded");
+      expect(unavailableReadCount).toBe(attemptsAfterReadFallback);
+    } finally {
+      await writerRepository.close();
+      await degradedRepository?.close();
+      await reopenedRepository?.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
   it("uses actual gzip bytes for the production IndexedDB snapshot codec", async () => {
     const codec = new GzipSnapshotCodec();
     const json = JSON.stringify({ repeated: "fabric-sketcher-".repeat(100) });

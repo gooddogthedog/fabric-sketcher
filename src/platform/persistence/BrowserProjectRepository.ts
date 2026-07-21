@@ -74,6 +74,7 @@ export type BrowserProjectRepositoryOptions = Readonly<{
   now?: () => string;
   snapshotFiles?: AtomicSnapshotFileStore | null;
   snapshotCodec?: SnapshotCodec;
+  environment?: BrowserPersistenceEnvironment;
   beforeAppend?: (operation: DocumentOperation) => void | Promise<void>;
   afterAppendStaged?: (operation: DocumentOperation) => void;
   afterSnapshotFileWritten?: (
@@ -83,7 +84,8 @@ export type BrowserProjectRepositoryOptions = Readonly<{
 }>;
 
 function snapshotPath(projectId: string, generation: number): string {
-  return `projects/${projectId}/snapshots/${generation}.json`;
+  const projectSegment = encodeURIComponent(projectId).replaceAll(".", "%2E");
+  return `projects/${projectSegment}/snapshots/${generation}.json`;
 }
 
 export class SnapshotCompressionUnavailableError extends Error {
@@ -153,10 +155,163 @@ export class GzipSnapshotCodec implements SnapshotCodec {
   }
 }
 
+export type OpfsWritableFileLike = Readonly<{
+  write(contents: Uint8Array): Promise<void>;
+  close(): Promise<void>;
+  abort?(): Promise<void>;
+}>;
+
+export type OpfsFileHandleLike = Readonly<{
+  createWritable(options?: {
+    keepExistingData?: boolean;
+  }): Promise<OpfsWritableFileLike>;
+  getFile(): Promise<Readonly<{ arrayBuffer(): Promise<ArrayBuffer> }>>;
+}>;
+
+export type OpfsDirectoryHandleLike = Readonly<{
+  getDirectoryHandle(
+    name: string,
+    options?: { create?: boolean },
+  ): Promise<OpfsDirectoryHandleLike>;
+  getFileHandle(
+    name: string,
+    options?: { create?: boolean },
+  ): Promise<OpfsFileHandleLike>;
+  removeEntry(name: string): Promise<void>;
+}>;
+
+export type OpfsRootProvider = () => Promise<OpfsDirectoryHandleLike>;
+
+export class OpfsUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `Origin private file system is unavailable${cause instanceof Error ? `: ${cause.message}` : "."}`,
+      { cause },
+    );
+    this.name = "OpfsUnavailableError";
+  }
+}
+
+function asOpfsUnavailableError(cause: unknown): OpfsUnavailableError {
+  return cause instanceof OpfsUnavailableError
+    ? cause
+    : new OpfsUnavailableError(cause);
+}
+
+export type BrowserPersistenceEnvironment = Readonly<{
+  storage?: Readonly<{
+    getDirectory?: OpfsRootProvider;
+  }>;
+}>;
+
+function defaultBrowserPersistenceEnvironment(): BrowserPersistenceEnvironment {
+  if (
+    typeof navigator === "undefined" ||
+    typeof navigator.storage?.getDirectory !== "function"
+  ) {
+    return {};
+  }
+  const storage = navigator.storage;
+  return {
+    storage: {
+      getDirectory: () =>
+        storage.getDirectory() as Promise<OpfsDirectoryHandleLike>,
+    },
+  };
+}
+
+function safeOpfsPathSegments(path: string): readonly string[] {
+  const segments = path.split("/");
+  if (
+    path.startsWith("/") ||
+    segments.length < 2 ||
+    segments.some(
+      (segment) =>
+        segment.length === 0 ||
+        segment === "." ||
+        segment === ".." ||
+        segment.includes("\\") ||
+        segment.includes("\0"),
+    )
+  ) {
+    throw new Error(`Unsafe OPFS snapshot path ${path}.`);
+  }
+  return segments;
+}
+
+export class NavigatorOpfsSnapshotFileStore implements AtomicSnapshotFileStore {
+  readonly #getRoot: OpfsRootProvider;
+
+  constructor(getRoot: OpfsRootProvider) {
+    this.#getRoot = getRoot;
+  }
+
+  async #root(): Promise<OpfsDirectoryHandleLike> {
+    try {
+      return await this.#getRoot();
+    } catch (cause) {
+      throw new OpfsUnavailableError(cause);
+    }
+  }
+
+  async writeAtomically(path: string, contents: Uint8Array): Promise<void> {
+    const segments = [...safeOpfsPathSegments(path)];
+    const fileName = segments.pop()!;
+    try {
+      let directory = await this.#root();
+      for (const segment of segments) {
+        directory = await directory.getDirectoryHandle(segment, {
+          create: true,
+        });
+      }
+      const file = await directory.getFileHandle(fileName, { create: true });
+      const writer = await file.createWritable({ keepExistingData: false });
+      try {
+        await writer.write(contents.slice());
+        await writer.close();
+      } catch (cause) {
+        await writer.abort?.().catch(() => undefined);
+        throw cause;
+      }
+    } catch (cause) {
+      throw asOpfsUnavailableError(cause);
+    }
+  }
+
+  async read(path: string): Promise<Uint8Array> {
+    const segments = [...safeOpfsPathSegments(path)];
+    const fileName = segments.pop()!;
+    try {
+      let directory = await this.#root();
+      for (const segment of segments) {
+        directory = await directory.getDirectoryHandle(segment);
+      }
+      const file = await directory.getFileHandle(fileName);
+      return new Uint8Array(await (await file.getFile()).arrayBuffer());
+    } catch (cause) {
+      throw asOpfsUnavailableError(cause);
+    }
+  }
+
+  async delete(path: string): Promise<void> {
+    const segments = [...safeOpfsPathSegments(path)];
+    const fileName = segments.pop()!;
+    try {
+      let directory = await this.#root();
+      for (const segment of segments) {
+        directory = await directory.getDirectoryHandle(segment);
+      }
+      await directory.removeEntry(fileName);
+    } catch (cause) {
+      throw asOpfsUnavailableError(cause);
+    }
+  }
+}
+
 export class BrowserProjectRepository implements ProjectRepository {
   readonly #database: Promise<IDBPDatabase<ProjectDatabase>>;
   readonly #now: () => string;
-  readonly #snapshotFiles: AtomicSnapshotFileStore | null;
+  #snapshotFiles: AtomicSnapshotFileStore | null;
   readonly #beforeAppend: (
     operation: DocumentOperation,
   ) => void | Promise<void>;
@@ -167,18 +322,29 @@ export class BrowserProjectRepository implements ProjectRepository {
   ) => void;
   readonly #snapshotCodec: SnapshotCodec;
   readonly #writes = new ProjectWriteQueue();
+  #storageMode: BrowserStorageMode;
 
-  readonly storageMode: BrowserStorageMode;
+  get storageMode(): BrowserStorageMode {
+    return this.#storageMode;
+  }
 
   constructor(options: BrowserProjectRepositoryOptions = {}) {
     this.#now = options.now ?? (() => new Date().toISOString());
-    this.#snapshotFiles = options.snapshotFiles ?? null;
+    const environment =
+      options.environment ?? defaultBrowserPersistenceEnvironment();
+    this.#snapshotFiles =
+      options.snapshotFiles === undefined
+        ? environment.storage?.getDirectory
+          ? new NavigatorOpfsSnapshotFileStore(environment.storage.getDirectory)
+          : null
+        : options.snapshotFiles;
     this.#beforeAppend = options.beforeAppend ?? (() => undefined);
     this.#afterAppendStaged = options.afterAppendStaged ?? (() => undefined);
     this.#afterSnapshotFileWritten =
       options.afterSnapshotFileWritten ?? (() => undefined);
     this.#snapshotCodec = options.snapshotCodec ?? new GzipSnapshotCodec();
-    this.storageMode = this.#snapshotFiles ? "opfs" : "indexeddb-degraded";
+    this.#storageMode = this.#snapshotFiles ? "opfs" : "indexeddb-degraded";
+    const restorePersistedMode = options.snapshotFiles === undefined;
     this.#database = openDB<ProjectDatabase>(
       options.databaseName ?? "fabric-sketcher",
       1,
@@ -199,7 +365,28 @@ export class BrowserProjectRepository implements ProjectRepository {
           database.createObjectStore("settings", { keyPath: "name" });
         },
       },
-    );
+    ).then(async (database) => {
+      const setting = await database.get("settings", "storageMode");
+      if (restorePersistedMode && setting?.value === "indexeddb-degraded") {
+        this.#enterDegradedMode();
+      }
+      return database;
+    });
+  }
+
+  #enterDegradedMode(): void {
+    this.#snapshotFiles = null;
+    this.#storageMode = "indexeddb-degraded";
+  }
+
+  async #persistDegradedMode(
+    database: IDBPDatabase<ProjectDatabase>,
+  ): Promise<void> {
+    this.#enterDegradedMode();
+    await database.put("settings", {
+      name: "storageMode",
+      value: "indexeddb-degraded",
+    });
   }
 
   async listProjects(): Promise<readonly ProjectSummary[]> {
@@ -288,7 +475,10 @@ export class BrowserProjectRepository implements ProjectRepository {
         return orderedOperations
           .filter((operation) => operation.sequence > base.operationSequence)
           .reduce(documentReducer, base);
-      } catch {
+      } catch (cause) {
+        if (cause instanceof OpfsUnavailableError) {
+          await this.#persistDegradedMode(database);
+        }
         // The next confirmed generation is the recovery candidate.
       }
     }
@@ -386,17 +576,47 @@ export class BrowserProjectRepository implements ProjectRepository {
       const path = snapshotPath(durableDocument.projectId, generation);
       let nextSnapshot: SnapshotIndexRecord;
       if (this.#snapshotFiles) {
+        const snapshotFiles = this.#snapshotFiles;
         try {
-          await this.#snapshotFiles.writeAtomically(
+          await snapshotFiles.writeAtomically(
             path,
             encodeDocumentSnapshot(durableDocument),
           );
           this.#afterSnapshotFileWritten(durableDocument, generation);
         } catch (cause) {
-          await this.#snapshotFiles.delete(path).catch(() => undefined);
-          throw new PersistenceError(
-            `Could not write snapshot ${generation} for project ${durableDocument.projectId}.`,
-            { cause },
+          await snapshotFiles.delete(path).catch(() => undefined);
+          if (!(cause instanceof OpfsUnavailableError)) {
+            throw new PersistenceError(
+              `Could not write snapshot ${generation} for project ${durableDocument.projectId}.`,
+              { cause },
+            );
+          }
+          this.#enterDegradedMode();
+          try {
+            nextSnapshot = {
+              projectId: durableDocument.projectId,
+              generation,
+              operationSequence: durableDocument.operationSequence,
+              location: "indexeddb",
+              encoding: this.#snapshotCodec.encoding,
+              payload: await this.#snapshotCodec.compress(
+                JSON.stringify(durableDocument),
+              ),
+            };
+          } catch (fallbackCause) {
+            throw new PersistenceError(
+              `Could not compress snapshot ${generation} for project ${durableDocument.projectId}.`,
+              { cause: fallbackCause },
+            );
+          }
+          // The IndexedDB confirmation transaction below persists degradation.
+          return await this.#confirmSnapshot(
+            database,
+            durableDocument,
+            existing,
+            nextSnapshot,
+            generation,
+            path,
           );
         }
         nextSnapshot = {
@@ -426,75 +646,89 @@ export class BrowserProjectRepository implements ProjectRepository {
         }
       }
 
-      const retained: SnapshotIndexRecord[] = [...existing, nextSnapshot].sort(
-        (left, right) => right.generation - left.generation,
+      return this.#confirmSnapshot(
+        database,
+        durableDocument,
+        existing,
+        nextSnapshot,
+        generation,
+        path,
       );
-      const expired = retained.slice(2);
-      const transaction = database.transaction(
-        ["projects", "snapshotIndex", "settings"],
-        "readwrite",
-      );
-      try {
-        const projects = transaction.objectStore("projects");
-        const project = await projects.get(durableDocument.projectId);
-        if (!project) {
-          throw new Error(
-            `Project ${durableDocument.projectId} does not exist.`,
-          );
-        }
-        if (durableDocument.operationSequence > project.latestSequence) {
-          throw new Error(
-            `Snapshot sequence ${durableDocument.operationSequence} exceeds durable sequence ${project.latestSequence}.`,
-          );
-        }
-
-        const snapshotIndex = transaction.objectStore("snapshotIndex");
-        await snapshotIndex.add(retained[0]);
-        await Promise.all(
-          expired.map((snapshot) =>
-            snapshotIndex.delete([snapshot.projectId, snapshot.generation]),
-          ),
-        );
-        await projects.put({
-          ...project,
-          title: durableDocument.title,
-          updatedAt: this.#now(),
-          width: durableDocument.width,
-          height: durableDocument.height,
-        });
-        await transaction.objectStore("settings").put({
-          name: "storageMode",
-          value: this.storageMode,
-        });
-        await transaction.done;
-      } catch (cause) {
-        try {
-          transaction.abort();
-        } catch {
-          // The transaction may already have aborted itself.
-        }
-        await transaction.done.catch(() => undefined);
-        if (nextSnapshot.location === "opfs" && this.#snapshotFiles) {
-          await this.#snapshotFiles.delete(path).catch(() => undefined);
-        }
-        throw new PersistenceError(
-          `Could not confirm snapshot ${generation} for project ${durableDocument.projectId}.`,
-          { cause },
-        );
-      }
-
-      if (this.#snapshotFiles) {
-        await Promise.all(
-          expired
-            .filter((snapshot) => snapshot.location === "opfs" && snapshot.path)
-            .map((snapshot) =>
-              this.#snapshotFiles!.delete(snapshot.path!).catch(
-                () => undefined,
-              ),
-            ),
-        );
-      }
     });
+  }
+
+  async #confirmSnapshot(
+    database: IDBPDatabase<ProjectDatabase>,
+    durableDocument: DesignDocument,
+    existing: readonly SnapshotIndexRecord[],
+    nextSnapshot: SnapshotIndexRecord,
+    generation: number,
+    path: string,
+  ): Promise<void> {
+    const retained: SnapshotIndexRecord[] = [...existing, nextSnapshot].sort(
+      (left, right) => right.generation - left.generation,
+    );
+    const expired = retained.slice(2);
+    const transaction = database.transaction(
+      ["projects", "snapshotIndex", "settings"],
+      "readwrite",
+    );
+    try {
+      const projects = transaction.objectStore("projects");
+      const project = await projects.get(durableDocument.projectId);
+      if (!project) {
+        throw new Error(`Project ${durableDocument.projectId} does not exist.`);
+      }
+      if (durableDocument.operationSequence > project.latestSequence) {
+        throw new Error(
+          `Snapshot sequence ${durableDocument.operationSequence} exceeds durable sequence ${project.latestSequence}.`,
+        );
+      }
+
+      const snapshotIndex = transaction.objectStore("snapshotIndex");
+      await snapshotIndex.add(retained[0]);
+      await Promise.all(
+        expired.map((snapshot) =>
+          snapshotIndex.delete([snapshot.projectId, snapshot.generation]),
+        ),
+      );
+      await projects.put({
+        ...project,
+        title: durableDocument.title,
+        updatedAt: this.#now(),
+        width: durableDocument.width,
+        height: durableDocument.height,
+      });
+      await transaction.objectStore("settings").put({
+        name: "storageMode",
+        value: this.storageMode,
+      });
+      await transaction.done;
+    } catch (cause) {
+      try {
+        transaction.abort();
+      } catch {
+        // The transaction may already have aborted itself.
+      }
+      await transaction.done.catch(() => undefined);
+      if (nextSnapshot.location === "opfs" && this.#snapshotFiles) {
+        await this.#snapshotFiles.delete(path).catch(() => undefined);
+      }
+      throw new PersistenceError(
+        `Could not confirm snapshot ${generation} for project ${durableDocument.projectId}.`,
+        { cause },
+      );
+    }
+
+    if (this.#snapshotFiles) {
+      await Promise.all(
+        expired
+          .filter((snapshot) => snapshot.location === "opfs" && snapshot.path)
+          .map((snapshot) =>
+            this.#snapshotFiles!.delete(snapshot.path!).catch(() => undefined),
+          ),
+      );
+    }
   }
 
   async deleteProject(projectId: string): Promise<void> {

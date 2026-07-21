@@ -1,6 +1,9 @@
 import type {
+  BrushSnapshot,
   DesignDocument,
   DocumentOperation,
+  PenSample,
+  StrokeOperation,
 } from "../../domain/document/types";
 
 export type ProjectSummary = Readonly<{
@@ -55,36 +58,144 @@ export function decodeDocumentSnapshot(
 ): DesignDocument {
   const candidate: unknown = JSON.parse(snapshotDecoder.decode(contents));
   if (
-    typeof candidate !== "object" ||
-    candidate === null ||
-    !("schemaVersion" in candidate) ||
+    !isRecord(candidate) ||
     candidate.schemaVersion !== 1 ||
-    !("projectId" in candidate) ||
     candidate.projectId !== expectedProjectId ||
-    !("title" in candidate) ||
     typeof candidate.title !== "string" ||
-    !("width" in candidate) ||
-    typeof candidate.width !== "number" ||
-    !Number.isFinite(candidate.width) ||
-    !("height" in candidate) ||
-    typeof candidate.height !== "number" ||
-    !Number.isFinite(candidate.height) ||
-    !("background" in candidate) ||
+    !isPositiveFiniteNumber(candidate.width) ||
+    !isPositiveFiniteNumber(candidate.height) ||
     candidate.background !== "#F7F3EC" ||
-    !("activeLayerId" in candidate) ||
     typeof candidate.activeLayerId !== "string" ||
-    !("operationSequence" in candidate) ||
+    candidate.activeLayerId.length === 0 ||
     !Number.isInteger(candidate.operationSequence) ||
     (candidate.operationSequence as number) < 0 ||
-    !("strokes" in candidate) ||
     !Array.isArray(candidate.strokes) ||
-    !("hiddenStrokeIds" in candidate) ||
     !Array.isArray(candidate.hiddenStrokeIds) ||
-    !candidate.hiddenStrokeIds.every(
-      (operationId) => typeof operationId === "string",
-    )
+    !isCanonicalDocumentHistory(candidate, expectedProjectId)
   ) {
     throw new Error(`Invalid snapshot for project ${expectedProjectId}.`);
   }
   return candidate as DesignDocument;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0;
+}
+
+function isNullableFiniteNumber(value: unknown): value is number | null {
+  return value === null || isFiniteNumber(value);
+}
+
+function isPenSample(value: unknown): value is PenSample {
+  return (
+    isRecord(value) &&
+    isFiniteNumber(value.x) &&
+    isFiniteNumber(value.y) &&
+    isFiniteNumber(value.pressure) &&
+    isFiniteNumber(value.tiltX) &&
+    isFiniteNumber(value.tiltY) &&
+    isFiniteNumber(value.twist) &&
+    isNullableFiniteNumber(value.altitudeAngle) &&
+    isNullableFiniteNumber(value.azimuthAngle) &&
+    isFiniteNumber(value.time)
+  );
+}
+
+function isBrushSnapshot(value: unknown): value is BrushSnapshot {
+  return (
+    isRecord(value) &&
+    value.id === "studio-pencil-v1" &&
+    typeof value.color === "string" &&
+    /^#[0-9a-fA-F]{6}$/.test(value.color) &&
+    isFiniteNumber(value.opacity) &&
+    isPositiveFiniteNumber(value.size) &&
+    isFiniteNumber(value.pressureSize) &&
+    isFiniteNumber(value.pressureOpacity) &&
+    isFiniteNumber(value.tiltShape)
+  );
+}
+
+function isStrokeOperation(
+  value: unknown,
+  expectedProjectId: string,
+  activeLayerId: string,
+  maximumSequence: number,
+): value is StrokeOperation {
+  return (
+    isRecord(value) &&
+    value.type === "stroke.committed" &&
+    typeof value.operationId === "string" &&
+    value.operationId.length > 0 &&
+    value.projectId === expectedProjectId &&
+    value.layerId === activeLayerId &&
+    Number.isInteger(value.sequence) &&
+    (value.sequence as number) > 0 &&
+    (value.sequence as number) <= maximumSequence &&
+    typeof value.committedAt === "string" &&
+    value.committedAt.length > 0 &&
+    isBrushSnapshot(value.brush) &&
+    Array.isArray(value.samples) &&
+    value.samples.length >= 2 &&
+    value.samples.every(isPenSample)
+  );
+}
+
+function isCanonicalDocumentHistory(
+  candidate: Record<string, unknown>,
+  expectedProjectId: string,
+): boolean {
+  if (
+    typeof candidate.activeLayerId !== "string" ||
+    !Number.isInteger(candidate.operationSequence) ||
+    !Array.isArray(candidate.strokes) ||
+    !Array.isArray(candidate.hiddenStrokeIds)
+  ) {
+    return false;
+  }
+
+  const maximumSequence = candidate.operationSequence as number;
+  const strokes = candidate.strokes;
+  if (
+    !strokes.every((stroke) =>
+      isStrokeOperation(
+        stroke,
+        expectedProjectId,
+        candidate.activeLayerId as string,
+        maximumSequence,
+      ),
+    )
+  ) {
+    return false;
+  }
+
+  const operationIds = strokes.map((stroke) => stroke.operationId);
+  if (new Set(operationIds).size !== operationIds.length) {
+    return false;
+  }
+  for (let index = 1; index < strokes.length; index += 1) {
+    if (strokes[index - 1].sequence >= strokes[index].sequence) {
+      return false;
+    }
+  }
+
+  const hiddenStrokeIds = candidate.hiddenStrokeIds;
+  if (
+    !hiddenStrokeIds.every(
+      (operationId): operationId is string =>
+        typeof operationId === "string" && operationIds.includes(operationId),
+    ) ||
+    new Set(hiddenStrokeIds).size !== hiddenStrokeIds.length
+  ) {
+    return false;
+  }
+
+  return true;
 }

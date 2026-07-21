@@ -105,21 +105,25 @@ export class MemoryProjectRepository implements ProjectRepository {
     if (!record) {
       throw new Error(`Project ${projectId} does not exist.`);
     }
-    let base = structuredClone(record.initialDocument);
     for (const snapshot of [...record.snapshots].reverse()) {
       try {
-        base = decodeDocumentSnapshot(
+        const base = decodeDocumentSnapshot(
           await this.#snapshotFiles.read(snapshot.path),
           projectId,
         );
-        break;
+        return record.operations
+          .filter((operation) => operation.sequence > base.operationSequence)
+          .reduce(documentReducer, base);
       } catch {
         // A prior confirmed generation remains a valid recovery candidate.
       }
     }
     return record.operations
-      .filter((operation) => operation.sequence > base.operationSequence)
-      .reduce(documentReducer, base);
+      .filter(
+        (operation) =>
+          operation.sequence > record.initialDocument.operationSequence,
+      )
+      .reduce(documentReducer, structuredClone(record.initialDocument));
   }
 
   async appendOperation(operation: DocumentOperation): Promise<void> {
@@ -198,9 +202,6 @@ export class MemoryProjectRepository implements ProjectRepository {
         0,
         Math.max(0, record.snapshots.length - 2),
       );
-      await Promise.all(
-        expired.map((snapshot) => this.#snapshotFiles.delete(snapshot.path)),
-      );
       record.summary = {
         ...record.summary,
         title: durableDocument.title,
@@ -208,6 +209,11 @@ export class MemoryProjectRepository implements ProjectRepository {
         width: durableDocument.width,
         height: durableDocument.height,
       };
+      await Promise.all(
+        expired.map((snapshot) =>
+          this.#snapshotFiles.delete(snapshot.path).catch(() => undefined),
+        ),
+      );
     });
   }
 
