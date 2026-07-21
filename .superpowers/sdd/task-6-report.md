@@ -101,3 +101,86 @@ Result: exit code 0. Prettier, ESLint, TypeScript project checking, all 85 Vites
 
 - A `PenSample[]` represents one continuous stroke and contains no segment-break marker, so no degenerate connector vertices are needed or emitted. If the renderer later batches multiple strips into one GPU draw, that batching layer must insert degenerate connectors between meshes.
 - The unit benchmark detects algorithmic regressions only. Pressure/tilt feel, GPU rendering, and Apple Pencil latency still require the planned physical-device gate.
+
+## Review-fix addendum: Unoriented, non-collapsing tilt support
+
+### Changes
+
+- Replaced the signed tilt-vector addition with an unoriented support offset. The tilt axis is normalized, projected onto the stroke normal, and multiplied by the sign of that projection before its symmetric elongation is added to the base circular radius.
+- Opposite tilt-axis signs now generate equivalent geometry because both the axis and projection sign reverse together.
+- A tilt axis perpendicular to the stroke normal contributes zero cross-section support. Every other axis adds a non-negative normal projection, so tilt cannot reduce the base circular cross-stroke extent or collapse the two edge vertices.
+- Added horizontal `±Y`, vertical `±X`, and both signed diagonal-axis cases while retaining all pressure, alpha, duplicate-point, tail-stabilization, immutability, and performance coverage.
+
+### RED evidence
+
+Command:
+
+```sh
+pnpm exec vitest run src/engine/brush/buildStrokeMesh.test.ts --reporter=verbose
+```
+
+Result before the implementation change:
+
+```text
+Test Files  1 failed (1)
+Tests       3 failed | 7 passed (10)
+```
+
+The three expected failures showed:
+
+- Horizontal `tiltY: -90` collapsed every edge pair to the centerline while `+90` produced a 20 px extent.
+- Vertical `tiltX: +90` collapsed every edge pair while `-90` produced a 20 px extent.
+- Negated diagonal axes produced different edge coordinates instead of the same unoriented-axis support.
+
+### GREEN evidence
+
+Direct focused command after the fix:
+
+```sh
+pnpm exec vitest run src/engine/brush/buildStrokeMesh.test.ts --reporter=verbose
+```
+
+Result:
+
+```text
+Test Files  1 passed (1)
+Tests       10 passed (10)
+buildStrokeMesh 10k: 3.85ms
+```
+
+The brief-requested focused command also passed:
+
+```sh
+pnpm test -- src/engine/brush
+```
+
+Result:
+
+```text
+Test Files  9 passed (9)
+Tests       88 passed (88)
+```
+
+### Full quality result after review fix
+
+The first `pnpm quality` attempt correctly stopped at formatting checks for the two edited brush files. After a mechanical Prettier write, the complete command was rerun and exited 0:
+
+```text
+Prettier              passed
+ESLint                passed
+TypeScript            passed
+Vitest                88 passed (88)
+Vite/PWA build        passed in 120ms
+```
+
+### Review-fix self-review
+
+- Confirmed the support-vector normal projection is `radius + abs(dot(normal, axis)) * extra`, so its cross-stroke extent cannot be smaller than the base radius.
+- Confirmed negating an axis also negates the dot-product sign, leaving `axis * sign(dot)` invariant.
+- Confirmed exact perpendicular axes contribute no elongation and retain the base circular width.
+- Confirmed horizontal, vertical, positive-slope diagonal, and negative-slope diagonal cases have non-coincident edges and equivalent meshes under axis negation.
+- Confirmed the change remains constant-time per sample and does not touch pressure, alpha, stabilization, neighbor selection, allocation, or input data.
+
+### Review-fix concerns
+
+None beyond the existing physical-device and cross-mesh batching notes above.

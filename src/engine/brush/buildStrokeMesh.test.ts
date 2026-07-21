@@ -87,7 +87,7 @@ describe("buildStrokeMesh", () => {
 
   it("elongates the nib across the detected tilt axis only when enabled", () => {
     const tiltedSamples = [0, 10, 20].map((x, time) =>
-      sample({ x, pressure: 1, tiltX: 45, time }),
+      sample({ x, pressure: 1, tiltY: 45, time }),
     );
     const disabled = buildStrokeMesh(tiltedSamples, {
       ...brush,
@@ -102,14 +102,73 @@ describe("buildStrokeMesh", () => {
       tiltShape: 1,
     });
     const zeroTilt = buildStrokeMesh(
-      tiltedSamples.map((point) => ({ ...point, tiltX: 0 })),
+      tiltedSamples.map((point) => ({ ...point, tiltY: 0 })),
       { ...brush, size: 10, pressureSize: 0, tiltShape: 1 },
     );
 
     expect([disabled[6], disabled[9]]).toEqual([10, 10]);
-    expect([enabled[6], enabled[9]]).toEqual([12.5, 7.5]);
-    expect([enabled[7], enabled[10]]).toEqual([5, -5]);
+    expect([enabled[6], enabled[9]]).toEqual([10, 10]);
+    expect([enabled[7], enabled[10]]).toEqual([7.5, -7.5]);
     expect(zeroTilt).toEqual(disabled);
+  });
+
+  it("treats positive and negative Y tilt as the same non-collapsing axis on a horizontal stroke", () => {
+    const makeMesh = (tiltY: number) =>
+      buildStrokeMesh(
+        [0, 10, 20].map((x, time) => sample({ x, pressure: 1, tiltY, time })),
+        { ...brush, size: 10, pressureSize: 0, tiltShape: 1 },
+      );
+    const positive = makeMesh(90);
+    const negative = makeMesh(-90);
+    const crossStrokeExtent = Math.abs(positive[7]! - positive[10]!);
+
+    expect(negative).toEqual(positive);
+    expect(crossStrokeExtent).toBeGreaterThanOrEqual(10);
+    expect(Math.hypot(positive[6]! - positive[9]!, crossStrokeExtent)).toBe(20);
+  });
+
+  it("treats positive and negative X tilt as the same non-collapsing axis on a vertical stroke", () => {
+    const makeMesh = (tiltX: number) =>
+      buildStrokeMesh(
+        [0, 10, 20].map((y, time) => sample({ y, pressure: 1, tiltX, time })),
+        { ...brush, size: 10, pressureSize: 0, tiltShape: 1 },
+      );
+    const positive = makeMesh(90);
+    const negative = makeMesh(-90);
+    const crossStrokeExtent = Math.abs(positive[6]! - positive[9]!);
+
+    expect(negative).toEqual(positive);
+    expect(crossStrokeExtent).toBeGreaterThanOrEqual(10);
+    expect(Math.hypot(crossStrokeExtent, positive[7]! - positive[10]!)).toBe(
+      20,
+    );
+  });
+
+  it("keeps signed diagonal tilt axes symmetric without reducing base cross-stroke extent", () => {
+    const makeMesh = (tiltX: number, tiltY: number) =>
+      buildStrokeMesh(
+        [0, 10, 20].map((x, time) =>
+          sample({ x, pressure: 1, tiltX, tiltY, time }),
+        ),
+        { ...brush, size: 10, pressureSize: 0, tiltShape: 1 },
+      );
+
+    for (const [tiltX, tiltY] of [
+      [45, 45],
+      [45, -45],
+    ] as const) {
+      const positive = makeMesh(tiltX, tiltY);
+      const negative = makeMesh(-tiltX, -tiltY);
+      const crossStrokeExtent = Math.abs(positive[7]! - positive[10]!);
+      const edgeDistance = Math.hypot(
+        positive[6]! - positive[9]!,
+        positive[7]! - positive[10]!,
+      );
+
+      expect(negative).toEqual(positive);
+      expect(crossStrokeExtent).toBeGreaterThanOrEqual(10);
+      expect(edgeDistance).toBeGreaterThan(0);
+    }
   });
 
   it("uses finite neighboring normals for identical points and zero-time intervals", () => {

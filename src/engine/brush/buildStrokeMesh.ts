@@ -79,12 +79,11 @@ export function buildStrokeMesh(
     const tiltLength = Math.hypot(tiltX, tiltY);
     const tiltMagnitude = Math.min(1, tiltLength / 90);
     const tiltExtent = radius * tiltShape * tiltMagnitude;
-    const nibX =
-      normalX * radius +
-      (tiltLength === 0 ? 0 : (tiltX / tiltLength) * tiltExtent);
-    const nibY =
-      normalY * radius +
-      (tiltLength === 0 ? 0 : (tiltY / tiltLength) * tiltExtent);
+    const tiltAxisX = tiltLength === 0 ? 0 : tiltX / tiltLength;
+    const tiltAxisY = tiltLength === 0 ? 0 : tiltY / tiltLength;
+    const tiltDirection = Math.sign(normalX * tiltAxisX + normalY * tiltAxisY);
+    const nibX = normalX * radius + tiltAxisX * tiltExtent * tiltDirection;
+    const nibY = normalY * radius + tiltAxisY * tiltExtent * tiltDirection;
     const alpha =
       clamp01(brush.opacity) *
       (1 - pressureOpacity + pressureOpacity * clamp01(sample.pressure));
