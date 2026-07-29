@@ -705,6 +705,43 @@ describe("DrawingSurface", () => {
 
     expect(store.getSnapshot().brush.id).toBe("denim-v1");
     expect(view.surface).toBeInTheDocument();
+
+    repository.appendOperation.mockClear();
+    fireEvent(
+      view.surface,
+      pointerEvent("pointerdown", sample(30, 40, 200, 0.45)),
+    );
+    fireEvent(
+      view.surface,
+      pointerEvent("pointermove", sample(90, 120, 216, 0.65)),
+    );
+    fireEvent(
+      view.surface,
+      pointerEvent("pointerup", sample(140, 180, 232, 0.72)),
+    );
+
+    await waitFor(() =>
+      expect(repository.appendOperation).toHaveBeenCalledTimes(1),
+    );
+    expect(repository.appendOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "stroke.committed",
+        brush: expect.objectContaining({ id: "denim-v1" }),
+      }),
+    );
+    expect(renderer.commitStroke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: "stroke-1",
+        texture: expect.objectContaining({ kind: "denim" }),
+      }),
+    );
+    expect(store.getSnapshot().document?.strokes).toEqual([
+      expect.objectContaining({ operationId: "recovered-denim-stroke" }),
+      expect.objectContaining({
+        operationId: "stroke-1",
+        brush: expect.objectContaining({ id: "denim-v1" }),
+      }),
+    ]);
   });
 
   it("forwards fitted and subscribed viewport matrices to the overlay", async () => {

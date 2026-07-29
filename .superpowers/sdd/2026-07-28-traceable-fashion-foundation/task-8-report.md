@@ -290,3 +290,202 @@ Scoped Task 8 files:
   require the user.
 - The browser-created test project intentionally remains in local browser
   storage; it contains no user data and is useful for the handoff.
+
+## Fix Round 1/5
+
+Date: 2026-07-29
+
+This round addresses only the two Important proof findings. It adds no product
+behavior or public API.
+
+### Important finding 1
+
+> "The unknown-asset test does not prove drawing remains usable. It selects
+> Denim, checks store state, and verifies that the canvas is mounted, but never
+> sends input or asserts a new stroke reaches persistence/renderer. A broken
+> drawing controller under the unavailable-asset state could pass. Add an
+> automated pointer gesture and assert a new Denim stroke.committed operation
+> and renderer commit. Keep the explicit statement that this is not Apple
+> Pencil acceptance."
+
+Addressed in `src/features/canvas/DrawingSurface.test.tsx`:
+
+1. Recover the fixture containing `retired-foundation@9` and one existing Denim
+   artwork stroke.
+2. Verify the missing-guide message and switch from Layers to Brushes.
+3. Select Denim.
+4. Dispatch synthetic `pen` pointerdown, pointermove, and pointerup through the
+   mounted drawing canvas.
+5. Assert exactly one new durable operation.
+6. Assert that operation is `stroke.committed` with brush `denim-v1`.
+7. Assert one renderer commit whose texture kind is `denim`.
+8. Assert editor state retains the recovered stroke and adds the new Denim
+   stroke.
+
+Focused result:
+
+```text
+$ pnpm exec vitest run src/features/canvas/DrawingSurface.test.tsx \
+  -t "keeps Brushes functional beside artwork when a pinned Foundation is unavailable"
+
+Test Files  1 passed (1)
+Tests       1 passed | 23 skipped (24)
+```
+
+Covering result:
+
+```text
+$ pnpm exec vitest run \
+  src/features/canvas/DrawingSurface.test.tsx \
+  src/app/App.test.tsx \
+  src/platform/persistence/BrowserProjectRepository.integration.test.ts
+
+Test Files  3 passed (3)
+Tests       88 passed (88)
+```
+
+This is automated synthetic controller evidence. It proves that drawing remains
+usable when the pinned asset is unavailable; it is not Apple Pencil acceptance.
+
+### Important finding 2
+
+> "The browser workflow omitted the required fabric-brush stroke. The record
+> jumps from selecting Denim directly to hiding/showing the guide. Both
+> inspected captures show a guide with no visible artwork, so the claimed
+> visual check that the Foundation remains quiet beneath artwork is not
+> demonstrated. Add a browser-driven Denim stroke, verify it after
+> reopen/removal, and capture it visually; this still does not replace the
+> real-device gate."
+
+Addressed with a temporary Playwright workflow against the existing,
+undisturbed Vite process at `http://localhost:5173/`:
+
+1. Launch a fresh isolated Chromium context at 1448×1086.
+2. Create a new design.
+3. Add Neutral figure — Front, set opacity to 55%, and hide Body levels.
+4. Select Denim.
+5. Dispatch a synthetic pen gesture across the center of the visible figure
+   guide.
+6. Verify Undo becomes enabled and local save returns to Saved.
+7. Return to the gallery and reopen the sole recent project.
+8. Verify Undo remains enabled and inspect the real `fabric-sketcher`
+   IndexedDB operations store.
+9. Assert exactly one reopened `stroke.committed` operation whose brush is
+   `denim-v1`.
+10. Capture desktop and mobile views with the Denim stroke visibly above the
+    quiet guide.
+11. Remove the Foundation.
+12. Assert Undo remains enabled, the same single Denim stroke remains in
+    IndexedDB, and the latest durable operation is `foundation.set` with
+    `foundation: null`.
+13. Capture the visible Denim artwork after removal.
+
+Passing browser proof:
+
+```json
+{
+  "synthetic": true,
+  "deviceAcceptance": false,
+  "projectId": "2aa2ac47-aca5-4be6-b01b-40fd169b576a",
+  "strokeOperationId": "53e5db21-2806-4659-b134-a5803fdb9b2a",
+  "brushId": "denim-v1",
+  "reopenedStrokeCount": 1,
+  "retainedStrokeCount": 1,
+  "latestOperation": "foundation.set",
+  "latestFoundation": null,
+  "consoleIssues": []
+}
+```
+
+Screenshot evidence:
+
+- Foundation plus visible Denim stroke, desktop:
+  `/private/tmp/traceable-fashion-foundation-desktop-1448x1086.png`
+  (PNG, 1448×1086).
+- Foundation plus visible Denim stroke, mobile:
+  `docs/testing/traceable-fashion-foundation-ipad.png`
+  (PNG, 390×844; updated committed artifact).
+- Denim stroke visibly retained after Foundation removal:
+  `/private/tmp/traceable-fashion-foundation-after-removal-1448x1086.png`
+  (PNG, 1448×1086).
+
+Visual inspection now directly demonstrates the darker blue Denim mark above
+the quiet 55% muted figure guide. The after-removal capture shows that identical
+mark on the warm paper with Foundation `None`.
+
+The browser emitted headless SwiftShader `GL Driver Message` performance
+diagnostics only during screenshot readback; those known browser-driver notices
+were separated from application console collection. Application warnings,
+errors, and page errors were empty. The temporary proof runner was deleted
+after the passing evidence was captured.
+
+This workflow uses constructed browser pointer events. It validates the real
+browser controller, renderer, IndexedDB persistence, reopen, and removal path,
+but it does not replace Apple Pencil drag, physical Denim input, or two-finger
+pinch acceptance on an iPad.
+
+### Fix Round 1 quality gate
+
+The first gate attempt correctly stopped at formatting for the newly edited
+checklist. The checklist was formatted and the complete gate was rerun from the
+beginning:
+
+```text
+$ pnpm quality
+$ pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+$ prettier --check .
+Checking formatting...
+All matched files use Prettier code style!
+$ eslint .
+$ tsc -b --pretty false
+$ vitest run
+
+RUN  v4.1.10
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+Test Files  27 passed (27)
+Tests       279 passed (279)
+
+$ tsc -b && vite build
+vite v8.1.5 building client environment for production...
+transforming... ✓ 48 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/registerSW.js                0.13 kB
+dist/manifest.webmanifest         0.43 kB
+dist/index.html                   0.60 kB │ gzip:  0.35 kB
+dist/assets/index-Dv-Ul0NL.css   16.91 kB │ gzip:  3.68 kB
+dist/assets/index-cNeiE_UJ.js   273.23 kB │ gzip: 83.58 kB
+✓ built in 85ms
+
+PWA v1.3.0
+mode      generateSW
+precache  13 entries (329.18 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-2fbc6a65.js
+```
+
+The three jsdom canvas `getContext()` notices remain the previously documented
+non-failing environment noise.
+
+### Fix Round 1 self-review and remaining concern
+
+- The unknown-asset test now fails if the canvas controller stops accepting
+  pen input, if the brush snapshot is not Denim, if persistence does not receive
+  the new operation, or if the renderer does not commit it.
+- The browser proof reads the real IndexedDB operations store after navigation,
+  not transient React state.
+- The screenshots were visually inspected at original resolution; both
+  Foundation captures show visible artwork, and the removal capture shows that
+  artwork retained.
+- No production file changed in this round.
+- `vite.config.ts`, the two existing `fabric-brush-alpha-*` files, and the
+  plan/progress ledger remain untouched.
+- The live Vite process was not stopped or restarted.
+- Remaining concern: genuine Apple Pencil and multi-touch behavior still
+  requires the user on physical iPad hardware. Synthetic evidence is not a
+  substitute.

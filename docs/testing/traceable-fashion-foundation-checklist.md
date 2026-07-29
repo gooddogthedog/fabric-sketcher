@@ -15,7 +15,9 @@ Verified: 2026-07-29
 - [x] An unknown pinned asset remains valid document data. The editor mounts
       the recovered artwork renderer, marks the unavailable guide as missing,
       presents “Foundation unavailable / Your artwork is safe,” and keeps
-      Brushes functional.
+      Brushes functional. A synthetic pen down/move/up after selecting Denim
+      produces one new durable `stroke.committed` operation, one Denim renderer
+      commit, and a second stroke in editor state while the asset is missing.
 - [x] Removing an unavailable or available guide leaves the artwork/canvas
       surface intact.
 
@@ -41,6 +43,9 @@ The process was not stopped or restarted.
       relocking removed all transform chrome.
 - [x] Denim remained selectable and visibly checked while Foundation controls
       were present.
+- [x] A synthetic pen gesture drew one visible Denim stroke over the guide.
+      IndexedDB contained exactly one Denim `stroke.committed` operation after
+      returning to the gallery and reopening.
 - [x] Hide removed all guide `<use>` elements; Show restored two visible
       landmark groups.
 - [x] Replacing the guide with Professional dress form — Front retained the
@@ -49,13 +54,16 @@ The process was not stopped or restarted.
 - [x] Returning to the gallery and reopening recovered the dress form, 55%
       opacity, 120% scale, landmark visibility, lock state, and exact matrix.
 - [x] Removing the guide left the drawing canvas mounted with no error overlay.
+      The reopened Denim stroke remained visible, Undo remained enabled, and
+      IndexedDB still contained the same single Denim stroke after the latest
+      durable `foundation.set` stored `foundation: null`.
 - [x] The live LAN endpoint
       `http://192.168.1.148:5173/` rendered the Fabric Sketcher gallery with no
       console warnings or errors.
-- [ ] Apple Pencil drag, touch pinch-scale, and the final physical Denim stroke
-      require the user on real iPad hardware. Browser automation cannot emit a
-      genuine Apple Pencil or multi-touch contact; synthetic input is not a
-      substitute for this acceptance gate.
+- [ ] Apple Pencil drag, touch pinch-scale, and a physical Denim stroke require
+      the user on real iPad hardware. The automated Denim gesture above is
+      intentionally synthetic; it is not a substitute for this acceptance
+      gate.
 
 ## Visual comparison
 
@@ -68,10 +76,13 @@ Committed mobile capture:
 Desktop capture:
 `/private/tmp/traceable-fashion-foundation-desktop-1448x1086.png`
 
+After-removal capture:
+`/private/tmp/traceable-fashion-foundation-after-removal-1448x1086.png`
+
 | Criterion               | Evidence                                                                                                                                                        |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Warm paper / cool field | Paper `rgb(247, 243, 236)`; field `rgb(242, 241, 239)`, matching the restrained approved palette.                                                               |
-| Quiet Foundation        | Guide rendered at 55% opacity in muted linework beneath the artwork canvas layer.                                                                               |
+| Quiet Foundation        | Updated desktop and mobile captures visibly show the muted 55% guide beneath the darker synthetic Denim stroke.                                                 |
 | Shelf family            | Both handles measured 56×144; Layers and corrected Brushes close targets measured 56×56; panels share warm surfaces, fine rules, radius, and restrained shadow. |
 | Overlay behavior        | Desktop paper remained exactly 688.57×973.99 at x=379.71 before and after opening the 292px Layers panel.                                                       |
 | Oxblood selection       | Active Foundation rule measured `rgb(151, 37, 31)`; range fills and checked controls used the same family color.                                                |
@@ -105,6 +116,11 @@ Checkpoint B.
   `expected 40 to be greater than or equal to 56`.
 - Focused close-target GREEN: 1 passed; full DrawingSurface suite 24 passed.
 - Focused recovery/unknown-asset suite: 3 files, 88 tests passed.
+- Fix Round 1 covering suite after the synthetic unknown-asset drawing proof:
+  3 files, 88 tests passed.
+- Synthetic browser proof: one Denim stroke after gallery reopen; the same one
+  remained after Foundation removal; latest operation was `foundation.set`
+  with `foundation: null`; application console issues were empty.
 - Integrated slice:
   `pnpm exec vitest run src/app src/features src/platform/persistence src/state`
   — 12 files, 147 tests passed before the target-size correction.
