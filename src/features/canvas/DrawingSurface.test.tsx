@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDocument } from "../../domain/document/createDocument";
+import { createFoundationState } from "../../domain/document/foundationState";
 import type {
   BrushSnapshot,
   DocumentOperation,
@@ -451,6 +452,66 @@ describe("DrawingSurface", () => {
     expect(view.rendererFactory).toHaveBeenCalledTimes(1);
     expect(view.surface).toBe(initialSurface);
     expect(viewport.reset).toHaveBeenCalledTimes(initialResets);
+  });
+
+  it("keeps the existing canvas and controller alive when foundation state changes", async () => {
+    const store = await openStore(projectRepository());
+    const renderer = mockRenderer();
+    const viewport = mockViewport();
+    const view = renderSurface(store, renderer, viewport);
+    const initialCanvas = view.surface;
+
+    await act(() =>
+      store.setFoundation(
+        createFoundationState({
+          assetId: "neutral-figure-front",
+          assetVersion: 1,
+          foundationType: "figure",
+          visibleLandmarkGroups: ["outline", "center"],
+        }),
+      ),
+    );
+
+    expect(view.surface).toBe(initialCanvas);
+    expect(view.rendererFactory).toHaveBeenCalledTimes(1);
+    expect(viewport.reset).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("foundation-outline-use")).toBeInTheDocument();
+    expect(screen.queryByTestId("foundation-levels-use")).toBeNull();
+  });
+
+  it("forwards fitted and subscribed viewport matrices to the overlay", async () => {
+    const store = await openStore(projectRepository());
+    await store.setFoundation(
+      createFoundationState({
+        assetId: "neutral-figure-front",
+        assetVersion: 1,
+        foundationType: "figure",
+        visibleLandmarkGroups: ["outline"],
+      }),
+    );
+    const renderer = mockRenderer();
+    const fitted: Matrix3 = [0.25, 0, 8, 0, 0.25, 12, 0, 0, 1];
+    const gesture: Matrix3 = [0.5, 0, 16, 0, 0.5, 24, 0, 0, 1];
+    let listener: ((matrix: Matrix3) => void) | null = null;
+    const viewport = mockViewport();
+    viewport.getMatrix = vi.fn(() => fitted);
+    viewport.subscribe = vi.fn((next) => {
+      listener = next;
+      return () => undefined;
+    });
+
+    renderSurface(store, renderer, viewport);
+    expect(screen.getByTestId("foundation-transform")).toHaveAttribute(
+      "transform",
+      "matrix(0.25 0 0 0.25 8 12)",
+    );
+
+    act(() => listener?.(gesture));
+
+    expect(screen.getByTestId("foundation-transform")).toHaveAttribute(
+      "transform",
+      "matrix(0.5 0 0 0.5 16 24)",
+    );
   });
 
   it("routes touch contacts only to the viewport controller", async () => {

@@ -7,6 +7,10 @@ import {
 import type { EditorStore } from "../../state/editorStore";
 import { BrushShelf } from "../brushes/BrushShelf";
 import {
+  FoundationOverlay,
+  type FoundationOverlayHandle,
+} from "../foundations/FoundationOverlay";
+import {
   createDrawingController,
   type DrawingViewportFactory,
 } from "./createDrawingController";
@@ -24,13 +28,14 @@ export function DrawingSurface({
   rendererFactory = createRenderer,
   viewportFactory,
 }: DrawingSurfaceProps) {
-  const mountRef = useRef<HTMLDivElement>(null);
+  const canvasMountRef = useRef<HTMLDivElement>(null);
+  const foundationOverlayRef = useRef<FoundationOverlayHandle>(null);
   const [compatibilityMode, setCompatibilityMode] = useState(false);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { projectId, title, width, height } = document;
 
   useLayoutEffect(() => {
-    const mount = mountRef.current;
+    const mount = canvasMountRef.current;
     if (!mount) {
       return;
     }
@@ -62,6 +67,9 @@ export function DrawingSurface({
       commitStroke: store.commitStroke.bind(store),
       getBrush: store.getActiveBrush,
       viewportFactory,
+      onViewportChange: (matrix) => {
+        foundationOverlayRef.current?.setViewport(matrix);
+      },
     });
     const detachRenderer = store.attachRenderer(
       selection.renderer,
@@ -97,7 +105,13 @@ export function DrawingSurface({
     <section className="drawing-surface" aria-label="Design workspace">
       <div className="drawing-surface__field">
         <BrushShelf store={store} />
-        <div className="drawing-surface__paper" ref={mountRef} />
+        <div className="drawing-surface__paper">
+          <FoundationOverlay
+            foundation={snapshot.document?.foundation ?? null}
+            ref={foundationOverlayRef}
+          />
+          <div className="drawing-surface__canvas-mount" ref={canvasMountRef} />
+        </div>
       </div>
       <div className="drawing-surface__actions">
         <button

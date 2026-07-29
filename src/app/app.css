@@ -321,6 +321,7 @@ canvas:focus-visible {
 }
 
 .drawing-surface__paper {
+  position: relative;
   width: min(100%, calc((100dvh - 112px) * 2480 / 3508));
   min-width: 0;
   height: auto;
@@ -333,12 +334,31 @@ canvas:focus-visible {
   box-shadow: 0 14px 32px rgb(38 36 33 / 8%);
 }
 
+.foundation-overlay__guide,
+.drawing-surface__canvas-mount,
 .drawing-surface__canvas {
-  display: block;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+}
+
+.foundation-overlay__guide {
+  z-index: 0;
+  overflow: visible;
+  color: var(--color-muted);
+  pointer-events: none;
+}
+
+.drawing-surface__canvas-mount {
+  z-index: 1;
   border-radius: inherit;
-  background: var(--color-document);
+}
+
+.drawing-surface__canvas {
+  display: block;
+  border-radius: inherit;
+  background: transparent;
   cursor: crosshair;
 }
 

@@ -58,6 +58,7 @@ export type CreateDrawingControllerOptions = Readonly<{
   cancelFrame?: (frameId: number) => void;
   createResizeObserver?: (callback: ResizeObserverCallback) => ResizeObserver;
   getDevicePixelRatio?: () => number;
+  onViewportChange?: (matrix: Matrix3) => void;
 }>;
 
 const listenerOptions: AddEventListenerOptions = Object.freeze({
@@ -246,11 +247,15 @@ export function createDrawingController(
     listenerOptions,
   );
 
-  const unsubscribeViewport = viewport.subscribe((matrix) => {
+  const setViewport = (matrix: Matrix3) => {
     renderer.setViewport(matrix);
+    options.onViewportChange?.(matrix);
+  };
+  const unsubscribeViewport = viewport.subscribe((matrix) => {
+    setViewport(matrix);
     scheduleRender();
   });
-  renderer.setViewport(viewport.getMatrix());
+  setViewport(viewport.getMatrix());
 
   const resize = (width: number, height: number) => {
     renderer.resize(width, height, getDevicePixelRatio());
@@ -259,7 +264,7 @@ export function createDrawingController(
       { x: 0, y: 0, width, height },
       noSafeArea,
     );
-    renderer.setViewport(viewport.getMatrix());
+    setViewport(viewport.getMatrix());
     scheduleRender();
   };
   const resizeObserver = createResizeObserver((entries) => {
