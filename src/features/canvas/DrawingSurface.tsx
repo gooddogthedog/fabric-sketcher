@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { DesignDocument } from "../../domain/document/types";
+import type { Matrix3 } from "../../engine/math/affine";
 import {
   createRenderer,
   type RendererSelection,
@@ -101,6 +102,13 @@ export function DrawingSurface({
         !snapshot.document?.hiddenStrokeIds.includes(stroke.operationId),
     ) ?? false;
 
+  const commitFoundationTransform = (transform: Matrix3) => {
+    const foundation = store.getSnapshot().document?.foundation;
+    if (foundation && !foundation.locked) {
+      return store.setFoundation({ ...foundation, transform });
+    }
+  };
+
   return (
     <section className="drawing-surface" aria-label="Design workspace">
       <div className="drawing-surface__field">
@@ -108,6 +116,7 @@ export function DrawingSurface({
         <div className="drawing-surface__paper">
           <FoundationOverlay
             foundation={snapshot.document?.foundation ?? null}
+            onCommitTransform={commitFoundationTransform}
             ref={foundationOverlayRef}
           />
           <div className="drawing-surface__canvas-mount" ref={canvasMountRef} />

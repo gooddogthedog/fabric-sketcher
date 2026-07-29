@@ -335,6 +335,7 @@ canvas:focus-visible {
 }
 
 .foundation-overlay__guide,
+.foundation-overlay__interaction,
 .drawing-surface__canvas-mount,
 .drawing-surface__canvas {
   position: absolute;
@@ -348,6 +349,12 @@ canvas:focus-visible {
   overflow: visible;
   color: var(--color-muted);
   pointer-events: none;
+}
+
+.foundation-overlay__interaction {
+  z-index: 2;
+  overflow: visible;
+  color: var(--color-muted);
 }
 
 .drawing-surface__canvas-mount {
@@ -364,7 +371,7 @@ canvas:focus-visible {
 
 .brush-shelf {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   inset-block-start: max(96px, env(safe-area-inset-top));
   inset-inline-start: -1px;
 }

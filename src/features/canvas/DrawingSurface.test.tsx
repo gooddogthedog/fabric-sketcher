@@ -479,10 +479,18 @@ describe("DrawingSurface", () => {
       const canvasMount = view.container.querySelector(
         ".drawing-surface__canvas-mount",
       );
+      const interaction = view.container.querySelector(
+        ".foundation-overlay__interaction",
+      );
       expect(shelf).not.toBeNull();
       expect(canvasMount).not.toBeNull();
-      expect(Number(getComputedStyle(shelf!).zIndex)).toBeGreaterThan(
+      expect(interaction).not.toBeNull();
+      expect(Number(getComputedStyle(interaction!).zIndex)).toBeGreaterThan(
         Number(getComputedStyle(canvasMount!).zIndex),
+      );
+      expect(getComputedStyle(interaction!).color).toBe("var(--color-muted)");
+      expect(Number(getComputedStyle(shelf!).zIndex)).toBeGreaterThan(
+        Number(getComputedStyle(interaction!).zIndex),
       );
     } finally {
       style.remove();
@@ -547,6 +555,121 @@ describe("DrawingSurface", () => {
       "transform",
       "matrix(0.5 0 0 0.5 16 24)",
     );
+  });
+
+  it("commits an unlocked foundation gesture once in document space", async () => {
+    const repository = projectRepository();
+    const store = await openStore(repository);
+    await store.setFoundation({
+      ...createFoundationState({
+        assetId: "neutral-figure-front",
+        assetVersion: 1,
+        foundationType: "figure",
+        visibleLandmarkGroups: ["outline"],
+      }),
+      locked: false,
+    });
+    repository.appendOperation.mockClear();
+    const renderer = mockRenderer();
+    const viewport = mockViewport();
+    const fitted: Matrix3 = [2, 0, 0, 0, 2, 0, 0, 0, 1];
+    viewport.getMatrix = vi.fn(() => fitted);
+    viewport.subscribe = vi.fn((listener) => {
+      listener(fitted);
+      return () => undefined;
+    });
+    const view = renderSurface(store, renderer, viewport);
+    const interaction = view.container.querySelector(
+      ".foundation-overlay__interaction",
+    );
+    if (!(interaction instanceof SVGSVGElement)) {
+      throw new Error("Expected the foundation interaction surface.");
+    }
+    const hitTarget = screen.getByTestId("foundation-hit-target");
+
+    fireEvent(
+      hitTarget,
+      pointerEvent("pointerdown", {
+        pointerId: 7,
+        pointerType: "pen",
+        clientX: 100,
+        clientY: 200,
+      }),
+    );
+    fireEvent(
+      hitTarget,
+      pointerEvent("pointermove", {
+        pointerId: 7,
+        pointerType: "pen",
+        clientX: 140,
+        clientY: 260,
+      }),
+    );
+    fireEvent(
+      hitTarget,
+      pointerEvent("pointerup", {
+        pointerId: 7,
+        pointerType: "pen",
+        clientX: 140,
+        clientY: 260,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(repository.appendOperation).toHaveBeenCalledTimes(1),
+    );
+    const operation = repository.appendOperation.mock.calls[0]?.[0];
+    expect(
+      operation?.type === "foundation.set"
+        ? operation.foundation?.transform
+        : null,
+    ).toEqual([1, 0, 20, 0, 1, 30, 0, 0, 1]);
+    expect(store.getSnapshot().document?.foundation?.transform).toEqual([
+      1, 0, 20, 0, 1, 30, 0, 0, 1,
+    ]);
+    expect(renderer.previewStroke).not.toHaveBeenCalled();
+    expect(viewport.onPointerDown).not.toHaveBeenCalled();
+  });
+
+  it("leaves locked foundation Pencil and touch contacts to the canvas", async () => {
+    const repository = projectRepository();
+    const store = await openStore(repository);
+    await store.setFoundation(
+      createFoundationState({
+        assetId: "neutral-figure-front",
+        assetVersion: 1,
+        foundationType: "figure",
+        visibleLandmarkGroups: ["outline"],
+      }),
+    );
+    repository.appendOperation.mockClear();
+    const renderer = mockRenderer();
+    const viewport = mockViewport();
+    const view = renderSurface(store, renderer, viewport);
+    const interaction = view.container.querySelector(
+      ".foundation-overlay__interaction",
+    );
+
+    expect(interaction).toHaveStyle({ pointerEvents: "none" });
+    fireEvent(view.surface, pointerEvent("pointerdown", sample(10, 20, 100)));
+    fireEvent(view.surface, pointerEvent("pointermove", sample(30, 40, 110)));
+    expect(renderer.previewStroke).toHaveBeenCalled();
+
+    const touch = {
+      pointerId: 3,
+      pointerType: "touch",
+      clientX: 60,
+      clientY: 70,
+      width: 18,
+      height: 20,
+      timeStamp: 120,
+    };
+    fireEvent(view.surface, pointerEvent("pointerdown", touch));
+    fireEvent(view.surface, pointerEvent("pointermove", touch));
+    fireEvent(view.surface, pointerEvent("pointerup", touch));
+    expect(viewport.onPointerDown).toHaveBeenCalledTimes(1);
+    expect(viewport.onPointerMove).toHaveBeenCalledTimes(1);
+    expect(viewport.onPointerUp).toHaveBeenCalledTimes(1);
   });
 
   it("routes touch contacts only to the viewport controller", async () => {
