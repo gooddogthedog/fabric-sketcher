@@ -338,6 +338,17 @@ describe("EditorStore", () => {
       now: () => "2026-07-21T12:00:00.000Z",
     });
     await store.openProject("project-1");
+    const rendererMethods = [
+      activeRenderer.resize,
+      activeRenderer.setViewport,
+      activeRenderer.replaceDocument,
+      activeRenderer.previewStroke,
+      activeRenderer.commitStroke,
+      activeRenderer.clearPreview,
+      activeRenderer.render,
+      activeRenderer.dispose,
+    ];
+    rendererMethods.forEach((method) => vi.mocked(method).mockClear());
 
     const saving = store.setFoundation(figure);
 
@@ -352,8 +363,9 @@ describe("EditorStore", () => {
         foundation: figure,
       }),
     );
-    expect(activeRenderer.commitStroke).not.toHaveBeenCalled();
-    expect(activeRenderer.replaceDocument).toHaveBeenCalledTimes(1);
+    rendererMethods.forEach((method) => {
+      expect(method).not.toHaveBeenCalled();
+    });
 
     append.resolve();
     await saving;
