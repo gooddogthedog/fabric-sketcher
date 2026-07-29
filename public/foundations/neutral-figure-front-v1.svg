@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2480 3508" role="img" aria-label="Neutral adult figure, front view">
+  <symbol id="foundation-outline" viewBox="0 0 2480 3508" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse id="landmark-head" cx="1240" cy="365" rx="166" ry="195"/>
+    <path id="landmark-body-contour" d="M1168 538
+      C1157 600 1118 640 1034 674
+      C958 704 907 748 882 824
+      C846 934 818 1085 792 1236
+      C770 1364 735 1510 702 1666
+      C691 1721 690 1794 714 1848
+      C725 1874 747 1887 768 1874
+      C795 1858 806 1821 808 1780
+      C811 1688 832 1583 862 1478
+      C897 1354 927 1227 958 1091
+      C981 989 1004 902 1026 835
+      C1022 973 1022 1110 1033 1239
+      C1040 1322 1039 1395 1016 1467
+      C991 1545 969 1622 962 1708
+      C956 1784 976 1841 1000 1901
+      C1023 1957 1028 2019 1017 2096
+      C1020 2190 1012 2345 1025 2510
+      C1032 2670 1032 2840 1040 3090
+      C1042 3152 1027 3210 982 3260
+      C970 3290 1002 3318 1054 3326
+      C1094 3330 1114 3310 1108 3282
+      C1103 3255 1086 3227 1100 3208
+      C1110 2940 1138 2710 1155 2510
+      C1172 2315 1148 2118 1201 1954
+      C1212 1914 1224 1884 1240 1860
+      C1256 1884 1268 1914 1279 1954
+      C1332 2118 1308 2315 1325 2510
+      C1342 2710 1370 2940 1380 3208
+      C1394 3227 1377 3255 1372 3282
+      C1366 3310 1386 3330 1426 3326
+      C1478 3318 1510 3290 1498 3260
+      C1453 3210 1438 3152 1440 3090
+      C1448 2840 1448 2670 1455 2510
+      C1468 2345 1460 2190 1463 2096
+      C1452 2019 1457 1957 1480 1901
+      C1504 1841 1524 1784 1518 1708
+      C1511 1622 1489 1545 1464 1467
+      C1441 1395 1440 1322 1447 1239
+      C1458 1110 1458 973 1454 835
+      C1476 902 1499 989 1522 1091
+      C1553 1227 1583 1354 1618 1478
+      C1648 1583 1669 1688 1672 1780
+      C1674 1821 1685 1858 1712 1874
+      C1733 1887 1755 1874 1766 1848
+      C1790 1794 1789 1721 1778 1666
+      C1745 1510 1710 1364 1688 1236
+      C1662 1085 1634 934 1598 824
+      C1573 748 1522 704 1446 674
+      C1362 640 1323 600 1312 538"/>
+    <path id="landmark-neck-shoulder" d="M1168 538
+      C1190 561 1214 574 1240 574
+      C1266 574 1290 561 1312 538
+      M1034 674 C1090 686 1130 708 1160 742
+      M1446 674 C1390 686 1350 708 1320 742"/>
+    <path id="landmark-hand-left" d="M714 1848
+      C703 1882 706 1919 721 1945
+      C733 1966 748 1964 755 1942
+      C763 1966 778 1963 784 1936
+      C792 1954 807 1945 808 1914
+      L808 1780"/>
+    <path id="landmark-hand-right" d="M1766 1848
+      C1777 1882 1774 1919 1759 1945
+      C1747 1966 1732 1964 1725 1942
+      C1717 1966 1702 1963 1696 1936
+      C1688 1954 1673 1945 1672 1914
+      L1672 1780"/>
+    <path id="landmark-foot-left" d="M982 3260
+      C974 3286 981 3312 1002 3324
+      C1034 3330 1084 3328 1106 3304"/>
+    <path id="landmark-foot-right" d="M1498 3260
+      C1506 3286 1499 3312 1478 3324
+      C1446 3330 1396 3328 1374 3304"/>
+  </symbol>
+
+  <symbol id="foundation-center" viewBox="0 0 2480 3508" fill="none" stroke-linecap="round">
+    <line id="landmark-center-front" x1="1240" y1="574" x2="1240" y2="1860"/>
+    <line id="landmark-stance-center" x1="1240" y1="1888" x2="1240" y2="3320"/>
+  </symbol>
+
+  <symbol id="foundation-levels" viewBox="0 0 2480 3508" fill="none" stroke-linecap="round">
+    <polyline id="landmark-shoulder" points="1008,706 1128,724 1240,742 1352,724 1472,706"/>
+    <line id="landmark-bust" x1="1018" y1="1018" x2="1462" y2="1018"/>
+    <line id="landmark-waist" x1="1038" y1="1318" x2="1442" y2="1318"/>
+    <line id="landmark-high-hip" x1="1005" y1="1450" x2="1475" y2="1450"/>
+    <line id="landmark-hip" x1="974" y1="1594" x2="1506" y2="1594"/>
+    <line id="landmark-knee" x1="955" y1="2520" x2="1525" y2="2520"/>
+    <line id="landmark-ankle" x1="912" y1="3155" x2="1568" y2="3155"/>
+  </symbol>
+
+  <symbol id="foundation-construction" viewBox="0 0 2480 3508" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path id="landmark-armhole" d="M1034 674
+      C1102 745 1097 851 1026 927
+      M1446 674 C1378 745 1383 851 1454 927"/>
+    <path id="landmark-torso-balance" d="M1092 770
+      C1065 940 1069 1114 1090 1278
+      M1388 770 C1415 940 1411 1114 1390 1278"/>
+    <path id="landmark-pelvis-balance" d="M1016 1467
+      C1083 1514 1158 1538 1240 1538
+      C1322 1538 1397 1514 1464 1467"/>
+    <path id="landmark-leg-balance" d="M1052 1910
+      C1074 2110 1066 2312 1038 2518
+      M1428 1910 C1406 2110 1414 2312 1442 2518"/>
+  </symbol>
+
+  <use href="#foundation-outline" stroke="#625E58" stroke-width="2.8" opacity="0.76"/>
+  <use href="#foundation-center" stroke="#8A4038" stroke-width="2.2" stroke-dasharray="18 14" opacity="0.62"/>
+  <use href="#foundation-levels" stroke="#625E58" stroke-width="2" stroke-dasharray="14 12" opacity="0.48"/>
+  <use href="#foundation-construction" stroke="#625E58" stroke-width="1.8" stroke-dasharray="10 12" opacity="0.5"/>
+</svg>
