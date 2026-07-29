@@ -5,6 +5,7 @@ set -Eeuo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT=9090
 VITE_BIN="${FABRIC_SKETCHER_VITE_BIN:-$APP_DIR/node_modules/.bin/vite}"
+PNPM_BIN="${FABRIC_SKETCHER_PNPM_BIN:-$(command -v pnpm || true)}"
 CLOUDFLARED_BIN="${FABRIC_SKETCHER_CLOUDFLARED_BIN:-$(command -v cloudflared || true)}"
 LSOF_BIN="${FABRIC_SKETCHER_LSOF_BIN:-$(command -v lsof || true)}"
 PGREP_BIN="${FABRIC_SKETCHER_PGREP_BIN:-$(command -v pgrep || true)}"
@@ -91,11 +92,26 @@ find_lan_ip() {
   fi
 }
 
+install_dependencies_if_needed() {
+  if [[ -x "$VITE_BIN" ]]; then
+    return
+  fi
+
+  require_executable "$PNPM_BIN" "pnpm (install it with: npm install --global pnpm)"
+  printf '%s\n' 'First run: installing Fabric Sketcher dependencies...'
+  "$PNPM_BIN" install --frozen-lockfile
+
+  if [[ ! -x "$VITE_BIN" ]]; then
+    printf 'Dependency installation completed, but Vite is still missing at %s\n' "$VITE_BIN" >&2
+    exit 1
+  fi
+}
+
 trap cleanup EXIT
 trap handle_interrupt INT
 trap handle_termination TERM
 
-require_executable "$VITE_BIN" "$APP_DIR/node_modules/.bin/vite (run pnpm install)"
+install_dependencies_if_needed
 require_executable "$CLOUDFLARED_BIN" "cloudflared (run brew install cloudflared)"
 require_executable "$LSOF_BIN" "lsof"
 require_executable "$PGREP_BIN" "pgrep"

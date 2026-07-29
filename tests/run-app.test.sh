@@ -14,11 +14,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cat >"$BIN_DIR/vite" <<'EOF'
+cat >"$BIN_DIR/vite-template" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >"$RUN_APP_TEST_STATE/vite-args"
 trap 'touch "$RUN_APP_TEST_STATE/vite-stopped"; exit 0' INT TERM
 while :; do sleep 1; done
+EOF
+
+cat >"$BIN_DIR/pnpm" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$RUN_APP_TEST_STATE/pnpm-args"
+mkdir -p "$(dirname "$FABRIC_SKETCHER_VITE_BIN")"
+cp "$RUN_APP_TEST_VITE_TEMPLATE" "$FABRIC_SKETCHER_VITE_BIN"
+chmod +x "$FABRIC_SKETCHER_VITE_BIN"
 EOF
 
 cat >"$BIN_DIR/cloudflared" <<'EOF'
@@ -57,7 +65,9 @@ EOF
 chmod +x "$BIN_DIR"/*
 
 RUN_APP_TEST_STATE="$STATE_DIR" \
-FABRIC_SKETCHER_VITE_BIN="$BIN_DIR/vite" \
+RUN_APP_TEST_VITE_TEMPLATE="$BIN_DIR/vite-template" \
+FABRIC_SKETCHER_VITE_BIN="$TEST_DIR/fresh-node-modules/.bin/vite" \
+FABRIC_SKETCHER_PNPM_BIN="$BIN_DIR/pnpm" \
 FABRIC_SKETCHER_CLOUDFLARED_BIN="$BIN_DIR/cloudflared" \
 FABRIC_SKETCHER_LSOF_BIN="$BIN_DIR/lsof" \
 FABRIC_SKETCHER_PGREP_BIN="$BIN_DIR/pgrep" \
@@ -124,6 +134,7 @@ try {
 }
 EOF
 
+grep -q -- 'install --frozen-lockfile' "$STATE_DIR/pnpm-args"
 grep -q -- '--host 0.0.0.0 --port 9090 --strictPort' "$STATE_DIR/vite-args"
 grep -q -- 'tunnel --url http://localhost:9090 --no-autoupdate' "$STATE_DIR/cloudflared-args"
 grep -q 'Local network: http://192.168.44.25:9090/' "$STATE_DIR/output"
