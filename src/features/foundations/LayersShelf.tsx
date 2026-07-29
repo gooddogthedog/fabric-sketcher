@@ -51,6 +51,20 @@ export function LayersShelf({
   const [opacityPreview, setOpacityPreview] = useState<number | null>(null);
   const [scalePreview, setScalePreview] = useState<number | null>(null);
   const pendingRangeRef = useRef<PendingRange | null>(null);
+  const previousOpenRef = useRef(open);
+
+  useEffect(() => {
+    const wasOpen = previousOpenRef.current;
+    previousOpenRef.current = open;
+    if (!wasOpen || open || pendingRangeRef.current === null) {
+      return;
+    }
+
+    pendingRangeRef.current = null;
+    setOpacityPreview(null);
+    setScalePreview(null);
+    onPreviewFoundation?.(null);
+  }, [onPreviewFoundation, open]);
 
   useEffect(() => {
     if (!open) {

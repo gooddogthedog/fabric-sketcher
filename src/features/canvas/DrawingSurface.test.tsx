@@ -482,6 +482,50 @@ describe("DrawingSurface", () => {
     expect(view.rendererFactory).toHaveBeenCalledTimes(1);
   });
 
+  it("cancels a pending Layers range preview when Brushes takes ownership", async () => {
+    const user = userEvent.setup();
+    const repository = projectRepository();
+    const store = await openStore(repository);
+    await store.setFoundation(
+      createFoundationState({
+        assetId: "neutral-figure-front",
+        assetVersion: 1,
+        foundationType: "figure",
+        visibleLandmarkGroups: ["outline"],
+      }),
+    );
+    repository.appendOperation.mockClear();
+    const view = renderSurface(store, mockRenderer(), mockViewport());
+    const initialCanvas = view.surface;
+
+    await user.click(screen.getByRole("button", { name: "Layers" }));
+    fireEvent.change(
+      screen.getByRole("slider", { name: "Foundation opacity" }),
+      { target: { value: "0.65" } },
+    );
+    expect(screen.getByTestId("foundation-transform")).toHaveAttribute(
+      "opacity",
+      "0.65",
+    );
+    expect(repository.appendOperation).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Brushes" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("foundation-transform")).toHaveAttribute(
+        "opacity",
+        "0.34",
+      ),
+    );
+    expect(repository.appendOperation).not.toHaveBeenCalled();
+    expect(view.surface).toBe(initialCanvas);
+    expect(view.rendererFactory).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Layers" }));
+    expect(screen.getByText("34%")).toBeVisible();
+    expect(repository.appendOperation).not.toHaveBeenCalled();
+  });
+
   it("shows the untouched-project Layers cue once per editor mount", async () => {
     const user = userEvent.setup();
     const store = await openStore(projectRepository());
@@ -523,6 +567,26 @@ describe("DrawingSurface", () => {
       expect(Number(getComputedStyle(shelf!).zIndex)).toBeGreaterThan(
         Number(getComputedStyle(interaction!).zIndex),
       );
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("keeps the Layers close control at least 56 pixels square", async () => {
+    const style = document.createElement("style");
+    style.textContent = APP_STYLES;
+    document.head.append(style);
+    const user = userEvent.setup();
+    const store = await openStore(projectRepository());
+    renderSurface(store, mockRenderer(), mockViewport());
+
+    try {
+      await user.click(screen.getByRole("button", { name: "Layers" }));
+      const close = screen.getByRole("button", { name: "Close layers" });
+      const computed = getComputedStyle(close);
+
+      expect(Number.parseFloat(computed.width)).toBeGreaterThanOrEqual(56);
+      expect(Number.parseFloat(computed.minHeight)).toBeGreaterThanOrEqual(56);
     } finally {
       style.remove();
     }

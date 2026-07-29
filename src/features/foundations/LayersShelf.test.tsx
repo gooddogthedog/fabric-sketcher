@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDocument } from "../../domain/document/createDocument";
@@ -264,4 +265,55 @@ describe("LayersShelf", () => {
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
     canvas.remove();
   });
+
+  it.each(["Escape", "canvas contact"] as const)(
+    "cancels a pending range preview without journaling on %s dismissal",
+    async (dismissal) => {
+      const user = userEvent.setup();
+      const { repository, store } = await storeWithFigure();
+      const onPreviewFoundation = vi.fn();
+      const canvas = document.createElement("canvas");
+      document.body.append(canvas);
+
+      function Harness() {
+        const [open, setOpen] = useState(true);
+        return (
+          <LayersShelf
+            onOpenChange={setOpen}
+            onPreviewFoundation={onPreviewFoundation}
+            open={open}
+            store={store}
+          />
+        );
+      }
+
+      render(<Harness />);
+      repository.appendOperation.mockClear();
+      fireEvent.change(
+        screen.getByRole("slider", { name: "Foundation opacity" }),
+        { target: { value: "0.65" } },
+      );
+      expect(onPreviewFoundation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ opacity: 0.65 }),
+      );
+      expect(repository.appendOperation).not.toHaveBeenCalled();
+
+      if (dismissal === "Escape") {
+        await user.keyboard("{Escape}");
+      } else {
+        fireEvent.pointerDown(canvas);
+      }
+
+      expect(
+        screen.queryByRole("complementary", { name: "Layers" }),
+      ).toBeNull();
+      expect(onPreviewFoundation).toHaveBeenLastCalledWith(null);
+      expect(repository.appendOperation).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Layers" }));
+      expect(screen.getByText("34%")).toBeVisible();
+      expect(repository.appendOperation).not.toHaveBeenCalled();
+      canvas.remove();
+    },
+  );
 });
