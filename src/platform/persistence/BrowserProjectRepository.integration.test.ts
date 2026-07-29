@@ -4,6 +4,7 @@ import { createDocument } from "../../domain/document/createDocument";
 import { documentReducer } from "../../domain/document/documentReducer";
 import {
   describeProjectRepositoryContract,
+  foundation,
   stroke,
   visibility,
 } from "./ProjectRepository.contract";
@@ -420,6 +421,34 @@ async function injectStoredOperation(
   }
 }
 
+async function replaceStoredInitialDocument(
+  databaseName: string,
+  projectId: string,
+  initialDocument: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  const database = await openDatabase(databaseName);
+  try {
+    const transaction = database.transaction("projects", "readwrite");
+    const projects = transaction.objectStore("projects");
+    const project = await new Promise<Record<string, unknown>>(
+      (resolve, reject) => {
+        const request = projects.get(projectId);
+        request.onsuccess = () =>
+          resolve(request.result as Record<string, unknown>);
+        request.onerror = () => reject(request.error);
+      },
+    );
+    projects.put({ ...project, initialDocument });
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
 describe("BrowserProjectRepository IndexedDB integration", () => {
   it("rejects invalid brush values before appending a durable journal entry", async () => {
     const databaseName = `fabric-sketcher-invalid-append-${browserDatabaseSequence++}`;
@@ -462,6 +491,39 @@ describe("BrowserProjectRepository IndexedDB integration", () => {
     }
   });
 
+  it("rejects a malformed foundation before appending a durable journal entry", async () => {
+    const databaseName = `fabric-sketcher-invalid-foundation-${browserDatabaseSequence++}`;
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      snapshotFiles: new FakeSnapshotFileStore(),
+    });
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Invalid foundation",
+    });
+    const malformed = {
+      ...foundation(),
+      foundation: {
+        ...foundation().foundation,
+        opacity: Number.NaN,
+      },
+    };
+
+    try {
+      await repository.createProject(initial);
+
+      await expect(
+        repository.appendOperation(malformed as DocumentOperation),
+      ).rejects.toThrow("Invalid document operation.");
+      await expect(
+        readStoredOperation(databaseName, "project-1", 1),
+      ).resolves.toBeUndefined();
+    } finally {
+      await repository.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
   it("rejects invalid brush values when recovering a stored journal entry", async () => {
     const databaseName = `fabric-sketcher-invalid-recovery-${browserDatabaseSequence++}`;
     const repository = new BrowserProjectRepository({
@@ -485,6 +547,35 @@ describe("BrowserProjectRepository IndexedDB integration", () => {
 
       await expect(repository.loadProject("project-1")).rejects.toThrow(
         "Invalid document operation.",
+      );
+    } finally {
+      await repository.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
+  it("migrates a schema-v1 initial document before journal replay", async () => {
+    const databaseName = `fabric-sketcher-legacy-initial-${browserDatabaseSequence++}`;
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      snapshotFiles: new FakeSnapshotFileStore(),
+    });
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Legacy initial document",
+    });
+    const schemaV1Initial: Record<string, unknown> = structuredClone(initial);
+    delete schemaV1Initial.foundation;
+
+    try {
+      await repository.createProject(initial);
+      await replaceStoredInitialDocument(databaseName, "project-1", {
+        ...schemaV1Initial,
+        schemaVersion: 1,
+      });
+
+      await expect(repository.loadProject("project-1")).resolves.toEqual(
+        initial,
       );
     } finally {
       await repository.close();
@@ -841,7 +932,7 @@ describe("BrowserProjectRepository IndexedDB integration", () => {
     await expect(codec.decompress(compressed)).resolves.toBe(json);
   });
 
-  it("creates schema version 1 with the required stores and unique operation ID index", async () => {
+  it("keeps IndexedDB schema version 1 with the required stores and unique operation ID index", async () => {
     const databaseName = `fabric-sketcher-schema-${browserDatabaseSequence++}`;
     const repository = new BrowserProjectRepository({
       databaseName,
@@ -1045,14 +1136,15 @@ describe("BrowserProjectRepository IndexedDB integration", () => {
       projectId: "project-1",
       title: "Degraded",
     });
-    const committed = documentReducer(initial, stroke());
+    const foundationOperation = foundation();
+    const committed = documentReducer(initial, foundationOperation);
     let recoveredRepository: BrowserProjectRepository | undefined;
     let database: IDBDatabase | undefined;
 
     try {
       expect(repository.storageMode).toBe("indexeddb-degraded");
       await repository.createProject(initial);
-      await repository.appendOperation(stroke());
+      await repository.appendOperation(foundationOperation);
       await repository.writeSnapshot(committed);
 
       expect(snapshotCodec.compressCount).toBe(1);

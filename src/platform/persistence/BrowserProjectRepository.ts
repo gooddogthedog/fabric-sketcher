@@ -18,6 +18,7 @@ import {
   DocumentOperationValidationError,
   encodeDocumentSnapshot,
   normalizeDocumentOperation,
+  normalizeDesignDocument,
   PersistenceError,
 } from "./types";
 import { ProjectWriteQueue } from "./writeQueue";
@@ -485,12 +486,15 @@ export class BrowserProjectRepository implements ProjectRepository {
       }
     }
 
+    const initialDocument = normalizeDesignDocument(
+      record.initialDocument,
+      projectId,
+    );
     return orderedOperations
       .filter(
-        (operation) =>
-          operation.sequence > record.initialDocument.operationSequence,
+        (operation) => operation.sequence > initialDocument.operationSequence,
       )
-      .reduce(documentReducer, structuredClone(record.initialDocument));
+      .reduce(documentReducer, initialDocument);
   }
 
   async appendOperation(operation: DocumentOperation): Promise<void> {

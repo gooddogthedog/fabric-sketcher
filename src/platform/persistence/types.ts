@@ -5,6 +5,7 @@ import type {
   PenSample,
   StrokeOperation,
 } from "../../domain/document/types";
+import { normalizeFoundationState } from "../../domain/document/foundationState";
 
 export type ProjectSummary = Readonly<{
   projectId: string;
@@ -64,9 +65,17 @@ export function decodeDocumentSnapshot(
   expectedProjectId: string,
 ): DesignDocument {
   const candidate: unknown = JSON.parse(snapshotDecoder.decode(contents));
+  return normalizeDesignDocument(candidate, expectedProjectId);
+}
+
+export function normalizeDesignDocument(
+  value: unknown,
+  expectedProjectId: string,
+): DesignDocument {
+  const candidate = value;
   if (
     !isRecord(candidate) ||
-    candidate.schemaVersion !== 1 ||
+    (candidate.schemaVersion !== 1 && candidate.schemaVersion !== 2) ||
     candidate.projectId !== expectedProjectId ||
     typeof candidate.title !== "string" ||
     !isPositiveFiniteNumber(candidate.width) ||
@@ -82,7 +91,27 @@ export function decodeDocumentSnapshot(
   ) {
     throw new Error(`Invalid snapshot for project ${expectedProjectId}.`);
   }
-  return normalizeDocumentSnapshot(candidate as DesignDocument);
+
+  const foundation =
+    candidate.schemaVersion === 1 || candidate.foundation === null
+      ? null
+      : normalizeFoundationState(candidate.foundation);
+
+  return {
+    schemaVersion: 2,
+    projectId: candidate.projectId,
+    title: candidate.title,
+    width: candidate.width,
+    height: candidate.height,
+    background: candidate.background,
+    activeLayerId: candidate.activeLayerId,
+    operationSequence: candidate.operationSequence as number,
+    foundation,
+    strokes: candidate.strokes.map((stroke) =>
+      normalizeLegacyPencilStroke(stroke as StrokeOperation),
+    ),
+    hiddenStrokeIds: [...candidate.hiddenStrokeIds],
+  };
 }
 
 export function normalizeDocumentOperation(value: unknown): DocumentOperation {
@@ -91,6 +120,23 @@ export function normalizeDocumentOperation(value: unknown): DocumentOperation {
   }
   if (isValidVisibilityOperation(value)) {
     return value;
+  }
+  if (isFoundationSetOperation(value)) {
+    try {
+      return {
+        type: "foundation.set",
+        operationId: value.operationId,
+        projectId: value.projectId,
+        sequence: value.sequence,
+        committedAt: value.committedAt,
+        foundation:
+          value.foundation === null
+            ? null
+            : normalizeFoundationState(value.foundation),
+      };
+    } catch {
+      throw new DocumentOperationValidationError();
+    }
   }
   throw new DocumentOperationValidationError();
 }
@@ -174,13 +220,6 @@ function isUnitIntervalFiniteNumber(value: unknown): value is number {
   return isFiniteNumber(value) && value >= 0 && value <= 1;
 }
 
-function normalizeDocumentSnapshot(document: DesignDocument): DesignDocument {
-  return {
-    ...document,
-    strokes: document.strokes.map(normalizeLegacyPencilStroke),
-  };
-}
-
 function isStrokeOperation(
   value: unknown,
   expectedProjectId: string,
@@ -220,7 +259,27 @@ function isValidVisibilityOperation(
   );
 }
 
-function isOperationMetadata(value: unknown): value is Record<string, unknown> {
+function isFoundationSetOperation(value: unknown): value is OperationMetadata &
+  Readonly<{
+    type: "foundation.set";
+    foundation: Record<string, unknown> | null;
+  }> {
+  return (
+    isOperationMetadata(value) &&
+    value.type === "foundation.set" &&
+    (value.foundation === null || isRecord(value.foundation))
+  );
+}
+
+type OperationMetadata = Record<string, unknown> &
+  Readonly<{
+    operationId: string;
+    projectId: string;
+    sequence: number;
+    committedAt: string;
+  }>;
+
+function isOperationMetadata(value: unknown): value is OperationMetadata {
   return (
     isRecord(value) &&
     typeof value.operationId === "string" &&

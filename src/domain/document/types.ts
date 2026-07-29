@@ -83,10 +83,20 @@ export type StrokeVisibilityOperation = Readonly<{
   visible: boolean;
 }>;
 
-export type DocumentOperation = StrokeOperation | StrokeVisibilityOperation;
+export type FoundationSetOperation = Readonly<{
+  type: "foundation.set";
+  operationId: string;
+  projectId: string;
+  sequence: number;
+  committedAt: string;
+  foundation: FoundationState | null;
+}>;
+
+export type DocumentOperation =
+  StrokeOperation | StrokeVisibilityOperation | FoundationSetOperation;
 
 export type DesignDocument = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   projectId: string;
   title: string;
   width: number;
@@ -94,6 +104,7 @@ export type DesignDocument = Readonly<{
   background: "#F7F3EC";
   activeLayerId: string;
   operationSequence: number;
+  foundation: FoundationState | null;
   strokes: readonly StrokeOperation[];
   hiddenStrokeIds: readonly string[];
 }>;

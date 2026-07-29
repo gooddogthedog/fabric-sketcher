@@ -6,7 +6,49 @@ import {
   DocumentVisibilityError,
   documentReducer,
 } from "./documentReducer";
-import type { StrokeOperation, StrokeVisibilityOperation } from "./types";
+import type {
+  FoundationSetOperation,
+  FoundationState,
+  StrokeOperation,
+  StrokeVisibilityOperation,
+} from "./types";
+
+const figure: FoundationState = {
+  assetId: "neutral-figure-front",
+  assetVersion: 1,
+  foundationType: "figure",
+  transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  opacity: 0.34,
+  visible: true,
+  visibleLandmarkGroups: ["outline", "center", "levels"],
+  locked: true,
+  includeInExport: false,
+};
+
+const dressForm: FoundationState = {
+  assetId: "dress-form-front",
+  assetVersion: 1,
+  foundationType: "dress-form",
+  transform: [0.9, 0, 24, 0, 0.9, 36, 0, 0, 1],
+  opacity: 0.4,
+  visible: true,
+  visibleLandmarkGroups: ["outline", "center", "construction"],
+  locked: false,
+  includeInExport: true,
+};
+
+const foundationOperation = (
+  foundation: FoundationState | null,
+  overrides: Partial<FoundationSetOperation> = {},
+): FoundationSetOperation => ({
+  type: "foundation.set",
+  operationId: "foundation-1",
+  projectId: "project-123",
+  sequence: 1,
+  committedAt: "2026-07-28T12:00:00.000Z",
+  foundation,
+  ...overrides,
+});
 
 const stroke = (overrides: Partial<StrokeOperation> = {}): StrokeOperation => ({
   type: "stroke.committed",
@@ -72,6 +114,52 @@ const visibility = (
 });
 
 describe("documentReducer", () => {
+  it("applies and replaces a complete foundation snapshot", () => {
+    const document = createDocument({
+      projectId: "project-123",
+      title: "Foundation study",
+    });
+    const withFigure = documentReducer(document, foundationOperation(figure));
+    const withForm = documentReducer(
+      withFigure,
+      foundationOperation(dressForm, {
+        sequence: 2,
+        operationId: "foundation-2",
+      }),
+    );
+
+    expect(withForm.foundation).toEqual(dressForm);
+    expect(withForm.operationSequence).toBe(2);
+    expect(withForm.foundation).not.toBe(dressForm);
+    expect(Object.isFrozen(withForm.foundation)).toBe(true);
+  });
+
+  it("removes a foundation without changing strokes", () => {
+    const withStroke = documentReducer(
+      createDocument({
+        projectId: "project-123",
+        title: "Foundation study",
+      }),
+      stroke(),
+    );
+    const documentWithStrokeAndFoundation = documentReducer(
+      withStroke,
+      foundationOperation(figure, {
+        sequence: 2,
+        operationId: "foundation-1",
+      }),
+    );
+
+    const result = documentReducer(documentWithStrokeAndFoundation, {
+      ...foundationOperation(null),
+      sequence: 3,
+      operationId: "foundation-2",
+    });
+
+    expect(result.foundation).toBeNull();
+    expect(result.strokes).toEqual(documentWithStrokeAndFoundation.strokes);
+  });
+
   it("commits a stroke immutably and advances the operation sequence once", () => {
     const document = createDocument({
       projectId: "project-123",

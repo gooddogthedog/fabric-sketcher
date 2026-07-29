@@ -3,6 +3,7 @@ import type {
   DocumentOperation,
   StrokeOperation,
 } from "./types";
+import { immutableFoundation } from "./foundationState";
 
 export class DocumentSequenceError extends Error {
   constructor(expected: number, received: number) {
@@ -48,6 +49,14 @@ export function documentReducer(
   const expectedSequence = document.operationSequence + 1;
   if (operation.sequence !== expectedSequence) {
     throw new DocumentSequenceError(expectedSequence, operation.sequence);
+  }
+
+  if (operation.type === "foundation.set") {
+    return {
+      ...document,
+      operationSequence: operation.sequence,
+      foundation: immutableFoundation(operation.foundation),
+    };
   }
 
   if (operation.type === "stroke.visibility-set") {

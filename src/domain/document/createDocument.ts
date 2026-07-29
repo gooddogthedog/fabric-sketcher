@@ -10,7 +10,7 @@ export function createDocument({
   title,
 }: CreateDocumentParameters): DesignDocument {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     projectId,
     title,
     width: 2480,
@@ -18,6 +18,7 @@ export function createDocument({
     background: "#F7F3EC",
     activeLayerId: `paint-layer:${projectId}`,
     operationSequence: 0,
+    foundation: null,
     strokes: [],
     hiddenStrokeIds: [],
   };

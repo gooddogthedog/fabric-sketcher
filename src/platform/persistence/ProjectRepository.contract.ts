@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDocument } from "../../domain/document/createDocument";
 import { documentReducer } from "../../domain/document/documentReducer";
 import type {
+  FoundationSetOperation,
+  FoundationState,
   StrokeOperation,
   StrokeVisibilityOperation,
 } from "../../domain/document/types";
@@ -71,6 +73,30 @@ export const visibility = (
   committedAt: "2026-07-21T10:02:00.000Z",
   targetOperationId: "stroke-1",
   visible: false,
+  ...overrides,
+});
+
+const unavailableFoundation: FoundationState = {
+  assetId: "retired-foundation",
+  assetVersion: 7,
+  foundationType: "figure",
+  transform: [1, 0, 36, 0, 1, 48, 0, 0, 1],
+  opacity: 0.34,
+  visible: true,
+  visibleLandmarkGroups: ["outline", "center", "levels"],
+  locked: true,
+  includeInExport: false,
+};
+
+export const foundation = (
+  overrides: Partial<FoundationSetOperation> = {},
+): FoundationSetOperation => ({
+  type: "foundation.set",
+  operationId: "foundation-1",
+  projectId: "project-1",
+  sequence: 1,
+  committedAt: "2026-07-28T12:00:00.000Z",
+  foundation: unavailableFoundation,
   ...overrides,
 });
 
@@ -160,6 +186,32 @@ export function describeProjectRepositoryContract(
       });
     });
 
+    it("round-trips a foundation whose asset is unavailable from the catalog", async () => {
+      const initial = createDocument({
+        projectId: "project-1",
+        title: "Retired foundation",
+      });
+      const operation = foundation();
+      const artwork = stroke({
+        operationId: "stroke-with-foundation",
+        sequence: 2,
+      });
+      const expected = {
+        ...initial,
+        operationSequence: 2,
+        foundation: unavailableFoundation,
+        strokes: [artwork],
+      };
+      await harness.repository.createProject(initial);
+      await harness.repository.appendOperation(operation);
+      await harness.repository.appendOperation(artwork);
+      await harness.repository.writeSnapshot(expected);
+
+      await expect(
+        harness.repository.loadProject("project-1"),
+      ).resolves.toEqual(expected);
+    });
+
     it("round-trips every calibrated brush with its complete texture snapshot", async () => {
       const initial = createDocument({
         projectId: "project-1",
@@ -203,14 +255,44 @@ export function describeProjectRepositoryContract(
       await harness.repository.createProject(initial);
       await harness.repository.appendOperation(operation);
       await harness.repository.writeSnapshot(expected);
+      const legacyExpected: Record<string, unknown> = structuredClone(expected);
+      delete legacyExpected.foundation;
       await harness.replaceLatestSnapshot("project-1", {
-        ...expected,
+        ...legacyExpected,
+        schemaVersion: 1,
         strokes: [{ ...operation, brush: legacyBrush }],
       });
 
       await expect(
         harness.repository.loadProject("project-1"),
       ).resolves.toEqual(expected);
+    });
+
+    it("falls back from a malformed foundation snapshot and replays the valid journal", async () => {
+      const initial = createDocument({
+        projectId: "project-1",
+        title: "Foundation fallback",
+      });
+      const committed = documentReducer(initial, stroke());
+      const foundationOperation = foundation({ sequence: 2 });
+      const withFoundation = documentReducer(committed, foundationOperation);
+
+      await harness.repository.createProject(initial);
+      await harness.repository.appendOperation(stroke());
+      await harness.repository.writeSnapshot(committed);
+      await harness.repository.appendOperation(foundationOperation);
+      await harness.repository.writeSnapshot(withFoundation);
+      await harness.replaceLatestSnapshot("project-1", {
+        ...withFoundation,
+        foundation: {
+          ...unavailableFoundation,
+          transform: [0, 0, 0, 0, 0, 0, 0, 0, 1],
+        },
+      });
+
+      await expect(
+        harness.repository.loadProject("project-1"),
+      ).resolves.toEqual(withFoundation);
     });
 
     it("treats a duplicate visibility operation ID as an idempotent append", async () => {
