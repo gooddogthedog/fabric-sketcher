@@ -45,6 +45,13 @@ export class PersistenceError extends Error {
   }
 }
 
+export class DocumentOperationValidationError extends Error {
+  constructor() {
+    super("Invalid document operation.");
+    this.name = "DocumentOperationValidationError";
+  }
+}
+
 const snapshotEncoder = new TextEncoder();
 const snapshotDecoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -76,6 +83,16 @@ export function decodeDocumentSnapshot(
     throw new Error(`Invalid snapshot for project ${expectedProjectId}.`);
   }
   return normalizeDocumentSnapshot(candidate as DesignDocument);
+}
+
+export function normalizeDocumentOperation(value: unknown): DocumentOperation {
+  if (isValidStrokeOperation(value)) {
+    return normalizeLegacyPencilStroke(value);
+  }
+  if (isValidVisibilityOperation(value)) {
+    return value;
+  }
+  throw new DocumentOperationValidationError();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -158,28 +175,9 @@ function isUnitIntervalFiniteNumber(value: unknown): value is number {
 }
 
 function normalizeDocumentSnapshot(document: DesignDocument): DesignDocument {
-  if (document.strokes.every((stroke) => stroke.brush.texture)) {
-    return document;
-  }
   return {
     ...document,
-    strokes: document.strokes.map((stroke) =>
-      stroke.brush.texture
-        ? stroke
-        : {
-            ...stroke,
-            brush: {
-              ...stroke.brush,
-              texture: {
-                kind: "graphite",
-                scale: 18,
-                strength: 0.34,
-                angle: 0,
-                scatter: 0.18,
-              },
-            },
-          },
-    ),
+    strokes: document.strokes.map(normalizeLegacyPencilStroke),
   };
 }
 
@@ -190,22 +188,74 @@ function isStrokeOperation(
   maximumSequence: number,
 ): value is StrokeOperation {
   return (
-    isRecord(value) &&
-    value.type === "stroke.committed" &&
-    typeof value.operationId === "string" &&
-    value.operationId.length > 0 &&
+    isValidStrokeOperation(value) &&
     value.projectId === expectedProjectId &&
     value.layerId === activeLayerId &&
-    Number.isInteger(value.sequence) &&
-    (value.sequence as number) > 0 &&
-    (value.sequence as number) <= maximumSequence &&
-    typeof value.committedAt === "string" &&
-    value.committedAt.length > 0 &&
+    value.sequence <= maximumSequence
+  );
+}
+
+function isValidStrokeOperation(value: unknown): value is StrokeOperation {
+  return (
+    isOperationMetadata(value) &&
+    value.type === "stroke.committed" &&
+    typeof value.layerId === "string" &&
+    value.layerId.length > 0 &&
     isBrushSnapshot(value.brush) &&
     Array.isArray(value.samples) &&
     value.samples.length >= 2 &&
     value.samples.every(isPenSample)
   );
+}
+
+function isValidVisibilityOperation(
+  value: unknown,
+): value is DocumentOperation {
+  return (
+    isOperationMetadata(value) &&
+    value.type === "stroke.visibility-set" &&
+    typeof value.targetOperationId === "string" &&
+    value.targetOperationId.length > 0 &&
+    typeof value.visible === "boolean"
+  );
+}
+
+function isOperationMetadata(value: unknown): value is Record<string, unknown> {
+  return (
+    isRecord(value) &&
+    typeof value.operationId === "string" &&
+    value.operationId.length > 0 &&
+    typeof value.projectId === "string" &&
+    value.projectId.length > 0 &&
+    Number.isInteger(value.sequence) &&
+    (value.sequence as number) > 0 &&
+    typeof value.committedAt === "string" &&
+    value.committedAt.length > 0
+  );
+}
+
+function normalizeLegacyPencilStroke(
+  operation: StrokeOperation,
+): StrokeOperation {
+  if (
+    operation.brush.id !== "studio-pencil-v1" ||
+    operation.brush.texture !== undefined
+  ) {
+    return operation;
+  }
+  return {
+    ...operation,
+    brush: {
+      ...operation.brush,
+      texture: {
+        kind: "graphite",
+        scale: 18,
+        strength: 0.34,
+        angle: 0,
+        scatter: 0.18,
+      },
+    },
+  };
 }
 
 function isCanonicalDocumentHistory(

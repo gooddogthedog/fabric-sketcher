@@ -358,7 +358,191 @@ async function deleteDatabase(databaseName: string): Promise<void> {
   });
 }
 
+async function openDatabase(databaseName: string): Promise<IDBDatabase> {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(databaseName);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readStoredOperation(
+  databaseName: string,
+  projectId: string,
+  sequence: number,
+): Promise<Record<string, unknown> | undefined> {
+  const database = await openDatabase(databaseName);
+  try {
+    const transaction = database.transaction("operations", "readonly");
+    return await new Promise<Record<string, unknown> | undefined>(
+      (resolve, reject) => {
+        const request = transaction
+          .objectStore("operations")
+          .get([projectId, sequence]);
+        request.onsuccess = () =>
+          resolve(request.result as Record<string, unknown> | undefined);
+        request.onerror = () => reject(request.error);
+      },
+    );
+  } finally {
+    database.close();
+  }
+}
+
+async function injectStoredOperation(
+  databaseName: string,
+  operation: DocumentOperation,
+): Promise<void> {
+  const database = await openDatabase(databaseName);
+  try {
+    const transaction = database.transaction(
+      ["operations", "projects"],
+      "readwrite",
+    );
+    const projects = transaction.objectStore("projects");
+    const project = await new Promise<Record<string, unknown>>(
+      (resolve, reject) => {
+        const request = projects.get(operation.projectId);
+        request.onsuccess = () =>
+          resolve(request.result as Record<string, unknown>);
+        request.onerror = () => reject(request.error);
+      },
+    );
+    projects.put({ ...project, latestSequence: operation.sequence });
+    transaction.objectStore("operations").put(operation);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
 describe("BrowserProjectRepository IndexedDB integration", () => {
+  it("rejects invalid brush values before appending a durable journal entry", async () => {
+    const databaseName = `fabric-sketcher-invalid-append-${browserDatabaseSequence++}`;
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      snapshotFiles: new FakeSnapshotFileStore(),
+    });
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Invalid",
+    });
+    const brush = stroke().brush;
+    const invalidBrushes = [
+      { ...brush, opacity: Number.NaN },
+      { ...brush, opacity: Number.POSITIVE_INFINITY },
+      { ...brush, texture: { ...brush.texture, scale: 0 } },
+      { ...brush, texture: { ...brush.texture, strength: 1.01 } },
+      { ...brush, texture: { ...brush.texture, scatter: -0.01 } },
+    ];
+
+    try {
+      await repository.createProject(initial);
+
+      for (const [index, invalidBrush] of invalidBrushes.entries()) {
+        await expect(
+          repository.appendOperation(
+            stroke({
+              operationId: `invalid-${index}`,
+              brush: invalidBrush,
+            }),
+          ),
+        ).rejects.toThrow("Invalid document operation.");
+      }
+      await expect(
+        readStoredOperation(databaseName, "project-1", 1),
+      ).resolves.toBeUndefined();
+    } finally {
+      await repository.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
+  it("rejects invalid brush values when recovering a stored journal entry", async () => {
+    const databaseName = `fabric-sketcher-invalid-recovery-${browserDatabaseSequence++}`;
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      snapshotFiles: new FakeSnapshotFileStore(),
+    });
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Recovery",
+    });
+    const operation = stroke({
+      brush: {
+        ...stroke().brush,
+        opacity: Number.NaN,
+      },
+    });
+
+    try {
+      await repository.createProject(initial);
+      await injectStoredOperation(databaseName, operation);
+
+      await expect(repository.loadProject("project-1")).rejects.toThrow(
+        "Invalid document operation.",
+      );
+    } finally {
+      await repository.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
+  it("normalizes a legacy pencil append without rewriting a legacy journal during recovery", async () => {
+    const databaseName = `fabric-sketcher-legacy-journal-${browserDatabaseSequence++}`;
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      snapshotFiles: new FakeSnapshotFileStore(),
+    });
+    const initial = createDocument({ projectId: "project-1", title: "Legacy" });
+    const source = stroke();
+    const legacyBrush = {
+      id: source.brush.id,
+      color: source.brush.color,
+      opacity: source.brush.opacity,
+      size: source.brush.size,
+      pressureSize: source.brush.pressureSize,
+      pressureOpacity: source.brush.pressureOpacity,
+      tiltShape: source.brush.tiltShape,
+    };
+    const legacyOperation = {
+      ...source,
+      brush: legacyBrush as typeof source.brush,
+    };
+
+    try {
+      await repository.createProject(initial);
+      await repository.appendOperation(legacyOperation);
+      expect(
+        (await readStoredOperation(databaseName, "project-1", 1))?.brush,
+      ).toMatchObject({
+        texture: { kind: "graphite" },
+      });
+
+      const rawLegacy = {
+        ...legacyOperation,
+        operationId: "legacy-stored",
+        sequence: 2,
+      };
+      await injectStoredOperation(databaseName, rawLegacy);
+      const loaded = await repository.loadProject("project-1");
+
+      expect(loaded.strokes[1]?.brush.texture).toMatchObject({
+        kind: "graphite",
+      });
+      expect(
+        (await readStoredOperation(databaseName, "project-1", 2))?.brush,
+      ).not.toHaveProperty("texture");
+    } finally {
+      await repository.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
   it("keeps memory snapshot confirmation successful when expired-file cleanup fails", async () => {
     const snapshotFiles = new FakeSnapshotFileStore();
     const repository = new MemoryProjectRepository({ snapshotFiles });

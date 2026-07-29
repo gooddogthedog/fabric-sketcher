@@ -15,7 +15,9 @@ import type {
 } from "./types";
 import {
   decodeDocumentSnapshot,
+  DocumentOperationValidationError,
   encodeDocumentSnapshot,
+  normalizeDocumentOperation,
   PersistenceError,
 } from "./types";
 import { ProjectWriteQueue } from "./writeQueue";
@@ -432,9 +434,9 @@ export class BrowserProjectRepository implements ProjectRepository {
       database.getAllFromIndex("operations", "projectId", projectId),
       database.getAllFromIndex("snapshotIndex", "projectId", projectId),
     ]);
-    const orderedOperations = operations.sort(
-      (left, right) => left.sequence - right.sequence,
-    );
+    const orderedOperations = operations
+      .map(normalizeDocumentOperation)
+      .sort((left, right) => left.sequence - right.sequence);
 
     for (const snapshot of snapshots.sort(
       (left, right) => right.generation - left.generation,
@@ -492,13 +494,13 @@ export class BrowserProjectRepository implements ProjectRepository {
   }
 
   async appendOperation(operation: DocumentOperation): Promise<void> {
-    const durableOperation = structuredClone(operation);
-    return this.#writes.run(durableOperation.projectId, async () => {
+    const stagedOperation = structuredClone(operation);
+    return this.#writes.run(stagedOperation.projectId, async () => {
       try {
-        await this.#beforeAppend(durableOperation);
+        await this.#beforeAppend(stagedOperation);
       } catch (cause) {
         throw new PersistenceError(
-          `Could not persist operation ${durableOperation.operationId}.`,
+          `Could not persist operation ${stagedOperation.operationId}.`,
           { cause },
         );
       }
@@ -512,11 +514,13 @@ export class BrowserProjectRepository implements ProjectRepository {
         const operations = transaction.objectStore("operations");
         const duplicate = await operations
           .index("operationId")
-          .get(durableOperation.operationId);
+          .get(stagedOperation.operationId);
         if (duplicate) {
           await transaction.done;
           return;
         }
+
+        const durableOperation = normalizeDocumentOperation(stagedOperation);
 
         const projects = transaction.objectStore("projects");
         const project = await projects.get(durableOperation.projectId);
@@ -548,11 +552,14 @@ export class BrowserProjectRepository implements ProjectRepository {
           // The transaction may already have aborted itself.
         }
         await transaction.done.catch(() => undefined);
-        if (cause instanceof DocumentSequenceError) {
+        if (
+          cause instanceof DocumentSequenceError ||
+          cause instanceof DocumentOperationValidationError
+        ) {
           throw cause;
         }
         throw new PersistenceError(
-          `Could not persist operation ${durableOperation.operationId}.`,
+          `Could not persist operation ${stagedOperation.operationId}.`,
           { cause },
         );
       }
