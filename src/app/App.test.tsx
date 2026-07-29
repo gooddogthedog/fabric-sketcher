@@ -2,6 +2,9 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDocument } from "../domain/document/createDocument";
+import { documentReducer } from "../domain/document/documentReducer";
+import { createFoundationState } from "../domain/document/foundationState";
+import { getBrushPreset } from "../engine/brush/presets";
 import type { Renderer } from "../engine/render/Renderer";
 import type { RendererSelection } from "../engine/render/createRenderer";
 import type { ProjectRepository } from "../platform/persistence/types";
@@ -166,5 +169,93 @@ describe("App", () => {
     expect(
       screen.getByLabelText("Drawing canvas for Recent design"),
     ).toHaveFocus();
+  });
+
+  it("opens recovered artwork when its pinned Foundation asset is unavailable", async () => {
+    const initial = createDocument({
+      projectId: "recent",
+      title: "Recovered design",
+    });
+    const withUnavailableFoundation = documentReducer(initial, {
+      type: "foundation.set",
+      operationId: "retired-foundation",
+      projectId: "recent",
+      sequence: 1,
+      committedAt: "2026-07-28T12:00:00.000Z",
+      foundation: {
+        ...createFoundationState({
+          assetId: "retired-foundation",
+          assetVersion: 9,
+          foundationType: "figure",
+          visibleLandmarkGroups: ["outline", "center"],
+        }),
+        transform: [0.82, 0, 180, 0, 0.82, 240, 0, 0, 1],
+      },
+    });
+    const recovered = documentReducer(withUnavailableFoundation, {
+      type: "stroke.committed",
+      operationId: "recovered-denim-stroke",
+      projectId: "recent",
+      layerId: initial.activeLayerId,
+      sequence: 2,
+      committedAt: "2026-07-28T12:01:00.000Z",
+      brush: getBrushPreset("denim-v1"),
+      samples: [
+        {
+          x: 720,
+          y: 920,
+          pressure: 0.6,
+          tiltX: 0,
+          tiltY: 0,
+          twist: 0,
+          altitudeAngle: null,
+          azimuthAngle: null,
+          time: 0,
+        },
+        {
+          x: 820,
+          y: 1020,
+          pressure: 0.7,
+          tiltX: 0,
+          tiltY: 0,
+          twist: 0,
+          altitudeAngle: null,
+          azimuthAngle: null,
+          time: 16,
+        },
+      ],
+    });
+    const activeRenderer = renderer();
+    const store = createEditorStore({
+      repository: repository({
+        loadProject: vi.fn(async () => recovered),
+      }),
+    });
+    const user = userEvent.setup();
+    render(
+      <App
+        rendererFactory={(canvas) => ({
+          renderer: activeRenderer,
+          surface: canvas,
+          fallbackReason: null,
+        })}
+        store={store}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Recent design")).toBeVisible(),
+    );
+
+    await user.click(screen.getByRole("button", { name: /Recent design/ }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Recovered design" }),
+    ).toBeVisible();
+    expect(activeRenderer.replaceDocument).toHaveBeenCalledWith([
+      expect.objectContaining({ operationId: "recovered-denim-stroke" }),
+    ]);
+    expect(screen.getByLabelText("Drawing canvas for Recovered design")).toBe(
+      document.activeElement,
+    );
   });
 });

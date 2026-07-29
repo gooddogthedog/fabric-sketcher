@@ -2,6 +2,10 @@ import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { createDocument } from "../../domain/document/createDocument";
 import { documentReducer } from "../../domain/document/documentReducer";
+import { createFoundationState } from "../../domain/document/foundationState";
+import { getBrushPreset } from "../../engine/brush/presets";
+import type { Matrix3 } from "../../engine/math/affine";
+import { createEditorStore } from "../../state/editorStore";
 import {
   describeProjectRepositoryContract,
   foundation,
@@ -450,6 +454,137 @@ async function replaceStoredInitialDocument(
 }
 
 describe("BrowserProjectRepository IndexedDB integration", () => {
+  it("recovers a transformed Foundation and Denim artwork after a snapshot reopen", async () => {
+    const databaseName = `fabric-sketcher-foundation-recovery-${browserDatabaseSequence++}`;
+    const snapshotFiles = new FakeSnapshotFileStore();
+    const repository = new BrowserProjectRepository({
+      databaseName,
+      snapshotFiles,
+    });
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Foundation recovery",
+    });
+    const placedTransform: Matrix3 = [0.82, 0, 180, 0, 0.82, 240, 0, 0, 1];
+    const ids = [
+      "foundation-added",
+      "foundation-opacity",
+      "foundation-landmarks",
+      "foundation-unlocked",
+      "foundation-placed",
+      "foundation-relocked",
+      "denim-stroke",
+    ];
+    const store = createEditorStore({
+      repository,
+      createId: () => ids.shift() ?? "unexpected-operation",
+      now: () => "2026-07-28T12:00:00.000Z",
+    });
+    let reopenedRepository: BrowserProjectRepository | undefined;
+
+    try {
+      await repository.createProject(initial);
+      await store.openProject("project-1");
+
+      const figure = createFoundationState({
+        assetId: "neutral-figure-front",
+        assetVersion: 1,
+        foundationType: "figure",
+        visibleLandmarkGroups: ["outline"],
+      });
+      await store.setFoundation(figure);
+      await store.setFoundation({ ...figure, opacity: 0.55 });
+      await store.setFoundation({
+        ...figure,
+        opacity: 0.55,
+        visibleLandmarkGroups: ["outline", "center"],
+      });
+      await store.setFoundation({
+        ...figure,
+        opacity: 0.55,
+        visibleLandmarkGroups: ["outline", "center"],
+        locked: false,
+      });
+      await store.setFoundation({
+        ...figure,
+        opacity: 0.55,
+        visibleLandmarkGroups: ["outline", "center"],
+        locked: false,
+        transform: placedTransform,
+      });
+      await store.setFoundation({
+        ...figure,
+        opacity: 0.55,
+        visibleLandmarkGroups: ["outline", "center"],
+        locked: true,
+        transform: placedTransform,
+      });
+      store.selectBrush("denim-v1");
+      await store.commitStroke(
+        [
+          {
+            x: 720,
+            y: 920,
+            pressure: 0.48,
+            tiltX: 3,
+            tiltY: -2,
+            twist: 0,
+            altitudeAngle: null,
+            azimuthAngle: null,
+            time: 0,
+          },
+          {
+            x: 820,
+            y: 1020,
+            pressure: 0.7,
+            tiltX: 4,
+            tiltY: -1,
+            twist: 0,
+            altitudeAngle: null,
+            azimuthAngle: null,
+            time: 16,
+          },
+        ],
+        getBrushPreset("denim-v1"),
+      );
+      const checkpoint = store.getSnapshot().document;
+      if (!checkpoint) {
+        throw new Error("Expected the Foundation checkpoint to remain open.");
+      }
+      await repository.writeSnapshot(checkpoint);
+      await repository.close();
+
+      reopenedRepository = new BrowserProjectRepository({
+        databaseName,
+        snapshotFiles,
+      });
+      const recovered = await reopenedRepository.loadProject("project-1");
+
+      expect(recovered).toEqual(
+        expect.objectContaining({
+          schemaVersion: 2,
+          foundation: expect.objectContaining({
+            assetId: "neutral-figure-front",
+            assetVersion: 1,
+            opacity: 0.55,
+            locked: true,
+            visibleLandmarkGroups: ["outline", "center"],
+            transform: placedTransform,
+          }),
+          strokes: [
+            expect.objectContaining({
+              brush: expect.objectContaining({ id: "denim-v1" }),
+            }),
+          ],
+        }),
+      );
+    } finally {
+      await reopenedRepository?.close();
+      await repository.close();
+      await deleteDatabase(databaseName);
+    }
+  });
+
   it("rejects invalid brush values before appending a durable journal entry", async () => {
     const databaseName = `fabric-sketcher-invalid-append-${browserDatabaseSequence++}`;
     const repository = new BrowserProjectRepository({

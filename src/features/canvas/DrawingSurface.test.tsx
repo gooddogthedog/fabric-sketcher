@@ -12,6 +12,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDocument } from "../../domain/document/createDocument";
+import { documentReducer } from "../../domain/document/documentReducer";
 import { createFoundationState } from "../../domain/document/foundationState";
 import type {
   BrushSnapshot,
@@ -572,7 +573,7 @@ describe("DrawingSurface", () => {
     }
   });
 
-  it("keeps the Layers close control at least 56 pixels square", async () => {
+  it("keeps both shelf close controls at least 56 pixels square", async () => {
     const style = document.createElement("style");
     style.textContent = APP_STYLES;
     document.head.append(style);
@@ -587,6 +588,15 @@ describe("DrawingSurface", () => {
 
       expect(Number.parseFloat(computed.width)).toBeGreaterThanOrEqual(56);
       expect(Number.parseFloat(computed.minHeight)).toBeGreaterThanOrEqual(56);
+
+      await user.click(screen.getByRole("button", { name: "Brushes" }));
+      const brushClose = screen.getByRole("button", { name: "Close brushes" });
+      const brushComputed = getComputedStyle(brushClose);
+
+      expect(Number.parseFloat(brushComputed.width)).toBeGreaterThanOrEqual(56);
+      expect(Number.parseFloat(brushComputed.minHeight)).toBeGreaterThanOrEqual(
+        56,
+      );
     } finally {
       style.remove();
     }
@@ -615,6 +625,86 @@ describe("DrawingSurface", () => {
     expect(viewport.reset).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("foundation-outline-use")).toBeInTheDocument();
     expect(screen.queryByTestId("foundation-levels-use")).toBeNull();
+  });
+
+  it("keeps Brushes functional beside artwork when a pinned Foundation is unavailable", async () => {
+    const initial = createDocument({
+      projectId: "project-1",
+      title: "Unavailable Foundation recovery",
+    });
+    const withFoundation = documentReducer(initial, {
+      type: "foundation.set",
+      operationId: "unavailable-foundation",
+      projectId: "project-1",
+      sequence: 1,
+      committedAt: "2026-07-28T12:00:00.000Z",
+      foundation: createFoundationState({
+        assetId: "retired-foundation",
+        assetVersion: 9,
+        foundationType: "figure",
+        visibleLandmarkGroups: ["outline", "center"],
+      }),
+    });
+    const recovered = documentReducer(withFoundation, {
+      type: "stroke.committed",
+      operationId: "recovered-denim-stroke",
+      projectId: "project-1",
+      layerId: initial.activeLayerId,
+      sequence: 2,
+      committedAt: "2026-07-28T12:01:00.000Z",
+      brush: getBrushPreset("denim-v1"),
+      samples: [
+        {
+          x: 720,
+          y: 920,
+          pressure: 0.6,
+          tiltX: 0,
+          tiltY: 0,
+          twist: 0,
+          altitudeAngle: null,
+          azimuthAngle: null,
+          time: 0,
+        },
+        {
+          x: 820,
+          y: 1020,
+          pressure: 0.7,
+          tiltX: 0,
+          tiltY: 0,
+          twist: 0,
+          altitudeAngle: null,
+          azimuthAngle: null,
+          time: 16,
+        },
+      ],
+    });
+    const repository = projectRepository();
+    vi.mocked(repository.loadProject).mockResolvedValueOnce(recovered);
+    const store = await openStore(repository);
+    const renderer = mockRenderer();
+    const view = renderSurface(store, renderer, mockViewport());
+    const user = userEvent.setup();
+
+    expect(renderer.replaceDocument).toHaveBeenCalledWith([
+      expect.objectContaining({ operationId: "recovered-denim-stroke" }),
+    ]);
+    expect(
+      view.container.querySelector("[data-foundation-missing='true']"),
+    ).not.toBeNull();
+    expect(
+      view.container.querySelector(".drawing-surface__canvas"),
+    ).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Layers" }));
+    expect(screen.getByText("Foundation unavailable")).toBeVisible();
+    expect(screen.getByText("Your artwork is safe.")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Brushes" }));
+    expect(screen.queryByText("Foundation unavailable")).toBeNull();
+    await user.click(screen.getByRole("radio", { name: "Denim" }));
+
+    expect(store.getSnapshot().brush.id).toBe("denim-v1");
+    expect(view.surface).toBeInTheDocument();
   });
 
   it("forwards fitted and subscribed viewport matrices to the overlay", async () => {
