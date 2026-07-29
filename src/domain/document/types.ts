@@ -1,4 +1,30 @@
+import type { Matrix3 } from "../../engine/math/affine";
+
 export type Point = Readonly<{ x: number; y: number }>;
+
+export type FoundationType = "figure" | "dress-form";
+
+export type FoundationLandmarkGroup =
+  "outline" | "center" | "levels" | "construction";
+
+export type FoundationState = Readonly<{
+  assetId: string;
+  assetVersion: number;
+  foundationType: FoundationType;
+  transform: Matrix3;
+  opacity: number;
+  visible: boolean;
+  visibleLandmarkGroups: readonly FoundationLandmarkGroup[];
+  locked: boolean;
+  includeInExport: boolean;
+}>;
+
+export type FoundationStateSeed = Readonly<{
+  assetId: string;
+  assetVersion: number;
+  foundationType: FoundationType;
+  visibleLandmarkGroups: readonly FoundationLandmarkGroup[];
+}>;
 
 export type PenSample = Readonly<{
   x: number;
