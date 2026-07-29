@@ -464,6 +464,37 @@ describe("DrawingSurface", () => {
     expect(viewport.reset).toHaveBeenCalledTimes(initialResets);
   });
 
+  it("keeps only one edge shelf open without recreating the canvas", async () => {
+    const user = userEvent.setup();
+    const store = await openStore(projectRepository());
+    const view = renderSurface(store, mockRenderer(), mockViewport());
+    const initialCanvas = view.surface;
+
+    await user.click(screen.getByRole("button", { name: "Brushes" }));
+    expect(
+      screen.getByRole("complementary", { name: "Brushes" }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Layers" }));
+
+    expect(screen.queryByRole("complementary", { name: "Brushes" })).toBeNull();
+    expect(screen.getByRole("complementary", { name: "Layers" })).toBeVisible();
+    expect(view.surface).toBe(initialCanvas);
+    expect(view.rendererFactory).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the untouched-project Layers cue once per editor mount", async () => {
+    const user = userEvent.setup();
+    const store = await openStore(projectRepository());
+    renderSurface(store, mockRenderer(), mockViewport());
+    const layers = screen.getByRole("button", { name: "Layers" });
+
+    expect(layers).toHaveAttribute("data-attention", "true");
+    await user.click(layers);
+    expect(layers).not.toHaveAttribute("data-attention");
+    await user.click(screen.getByRole("button", { name: "Close layers" }));
+    expect(layers).not.toHaveAttribute("data-attention");
+  });
+
   it("keeps open brush controls above the artwork hit target", async () => {
     const style = document.createElement("style");
     style.textContent = APP_STYLES;

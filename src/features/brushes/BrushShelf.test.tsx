@@ -23,10 +23,17 @@ describe("BrushShelf", () => {
   it("selects a preset from the open shelf without closing comparison", async () => {
     const user = userEvent.setup();
     const store = createStore();
+    const onOpenChange = vi.fn();
 
-    render(<BrushShelf store={store} />);
+    const view = render(
+      <BrushShelf open={false} onOpenChange={onOpenChange} store={store} />,
+    );
 
     await user.click(screen.getByRole("button", { name: "Brushes" }));
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    view.rerender(
+      <BrushShelf open onOpenChange={onOpenChange} store={store} />,
+    );
     expect(
       screen.getByRole("radiogroup", { name: "Brush presets" }),
     ).toBeVisible();
@@ -48,29 +55,23 @@ describe("BrushShelf", () => {
     const canvas = document.createElement("canvas");
     document.body.append(canvas);
 
-    render(<BrushShelf onOpenChange={onOpenChange} store={store} />);
-    await user.click(screen.getByRole("button", { name: "Brushes" }));
+    const view = render(
+      <BrushShelf open onOpenChange={onOpenChange} store={store} />,
+    );
     await user.click(screen.getByRole("button", { name: "Close brushes" }));
 
-    expect(
-      screen.queryByRole("radiogroup", { name: "Brush presets" }),
-    ).toBeNull();
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
 
-    await user.click(screen.getByRole("button", { name: "Brushes" }));
+    onOpenChange.mockClear();
     await user.keyboard("{Escape}");
 
-    expect(
-      screen.queryByRole("radiogroup", { name: "Brush presets" }),
-    ).toBeNull();
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
 
-    await user.click(screen.getByRole("button", { name: "Brushes" }));
+    onOpenChange.mockClear();
     fireEvent.pointerDown(canvas);
 
-    expect(
-      screen.queryByRole("radiogroup", { name: "Brush presets" }),
-    ).toBeNull();
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
     canvas.remove();
+    view.unmount();
   });
 });

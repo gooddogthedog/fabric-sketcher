@@ -1,24 +1,15 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { BRUSH_PRESETS } from "../../engine/brush/presets";
 import type { EditorStore } from "../../state/editorStore";
+import type { ControlledShelfProps } from "../foundations/LayersShelf";
 
-export type BrushShelfProps = Readonly<{
-  store: EditorStore;
-  onOpenChange?: (open: boolean) => void;
-}>;
+export type BrushShelfProps = ControlledShelfProps &
+  Readonly<{
+    store: EditorStore;
+  }>;
 
-export function BrushShelf({ store, onOpenChange }: BrushShelfProps) {
+export function BrushShelf({ store, open, onOpenChange }: BrushShelfProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const [open, setOpen] = useState(false);
-
-  const changeOpen = (nextOpen: boolean) => {
-    setOpen((currentOpen) => {
-      if (currentOpen !== nextOpen) {
-        onOpenChange?.(nextOpen);
-      }
-      return nextOpen;
-    });
-  };
 
   useEffect(() => {
     if (!open) {
@@ -27,12 +18,12 @@ export function BrushShelf({ store, onOpenChange }: BrushShelfProps) {
 
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        changeOpen(false);
+        onOpenChange(false);
       }
     };
     const closeOnCanvasContact = (event: PointerEvent) => {
       if (event.target instanceof HTMLCanvasElement) {
-        changeOpen(false);
+        onOpenChange(false);
       }
     };
 
@@ -42,14 +33,14 @@ export function BrushShelf({ store, onOpenChange }: BrushShelfProps) {
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOnCanvasContact);
     };
-  }, [open]);
+  }, [onOpenChange, open]);
 
   return (
     <div className="brush-shelf">
       <button
         aria-expanded={open}
         className="brush-shelf__handle"
-        onClick={() => changeOpen(!open)}
+        onClick={() => onOpenChange(!open)}
         type="button"
       >
         Brushes
@@ -61,7 +52,7 @@ export function BrushShelf({ store, onOpenChange }: BrushShelfProps) {
             <button
               aria-label="Close brushes"
               className="brush-shelf__close"
-              onClick={() => changeOpen(false)}
+              onClick={() => onOpenChange(false)}
               type="button"
             >
               <svg aria-hidden="true" viewBox="0 0 24 24">

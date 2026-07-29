@@ -11,6 +11,7 @@ import {
   FoundationOverlay,
   type FoundationOverlayHandle,
 } from "../foundations/FoundationOverlay";
+import { LayersShelf, type EdgeShelfId } from "../foundations/LayersShelf";
 import {
   createDrawingController,
   type DrawingViewportFactory,
@@ -32,6 +33,10 @@ export function DrawingSurface({
   const canvasMountRef = useRef<HTMLDivElement>(null);
   const foundationOverlayRef = useRef<FoundationOverlayHandle>(null);
   const [compatibilityMode, setCompatibilityMode] = useState(false);
+  const [openShelf, setOpenShelf] = useState<EdgeShelfId | null>(null);
+  const [layersOpened, setLayersOpened] = useState(false);
+  const [foundationPreview, setFoundationPreview] =
+    useState<DesignDocument["foundation"]>(null);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { projectId, title, width, height } = document;
 
@@ -109,18 +114,40 @@ export function DrawingSurface({
     }
   };
 
+  const changeShelf = (shelf: EdgeShelfId, open: boolean) => {
+    if (shelf === "layers" && open) {
+      setLayersOpened(true);
+    }
+    setOpenShelf(open ? shelf : null);
+  };
+
+  const foundation = snapshot.document?.foundation ?? null;
+  const untouched =
+    foundation === null && (snapshot.document?.strokes.length ?? 0) === 0;
+
   return (
     <section className="drawing-surface" aria-label="Design workspace">
       <div className="drawing-surface__field">
-        <BrushShelf store={store} />
+        <BrushShelf
+          onOpenChange={(open) => changeShelf("brushes", open)}
+          open={openShelf === "brushes"}
+          store={store}
+        />
         <div className="drawing-surface__paper">
           <FoundationOverlay
-            foundation={snapshot.document?.foundation ?? null}
+            foundation={foundationPreview ?? foundation}
             onCommitTransform={commitFoundationTransform}
             ref={foundationOverlayRef}
           />
           <div className="drawing-surface__canvas-mount" ref={canvasMountRef} />
         </div>
+        <LayersShelf
+          attention={untouched && !layersOpened}
+          onOpenChange={(open) => changeShelf("layers", open)}
+          onPreviewFoundation={setFoundationPreview}
+          open={openShelf === "layers"}
+          store={store}
+        />
       </div>
       <div className="drawing-surface__actions">
         <button
