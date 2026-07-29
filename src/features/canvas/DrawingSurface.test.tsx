@@ -1,3 +1,6 @@
+// @ts-expect-error -- Vitest executes under Node; the app build intentionally
+// omits Node types.
+import { readFileSync } from "node:fs";
 import {
   act,
   cleanup,
@@ -31,6 +34,13 @@ import {
   type DrawingViewportFactory,
 } from "./createDrawingController";
 import { DrawingSurface } from "./DrawingSurface";
+
+const PROJECT_DIRECTORY = (
+  globalThis as typeof globalThis & {
+    process: { cwd(): string };
+  }
+).process.cwd();
+const APP_STYLES = readFileSync(`${PROJECT_DIRECTORY}/src/app/app.css`, "utf8");
 
 type ObserverRecord = Readonly<{
   callback: ResizeObserverCallback;
@@ -452,6 +462,31 @@ describe("DrawingSurface", () => {
     expect(view.rendererFactory).toHaveBeenCalledTimes(1);
     expect(view.surface).toBe(initialSurface);
     expect(viewport.reset).toHaveBeenCalledTimes(initialResets);
+  });
+
+  it("keeps open brush controls above the artwork hit target", async () => {
+    const style = document.createElement("style");
+    style.textContent = APP_STYLES;
+    document.head.append(style);
+    const user = userEvent.setup();
+    const store = await openStore(projectRepository());
+    const view = renderSurface(store, mockRenderer(), mockViewport());
+
+    try {
+      await user.click(screen.getByRole("button", { name: "Brushes" }));
+
+      const shelf = view.container.querySelector(".brush-shelf");
+      const canvasMount = view.container.querySelector(
+        ".drawing-surface__canvas-mount",
+      );
+      expect(shelf).not.toBeNull();
+      expect(canvasMount).not.toBeNull();
+      expect(Number(getComputedStyle(shelf!).zIndex)).toBeGreaterThan(
+        Number(getComputedStyle(canvasMount!).zIndex),
+      );
+    } finally {
+      style.remove();
+    }
   });
 
   it("keeps the existing canvas and controller alive when foundation state changes", async () => {
