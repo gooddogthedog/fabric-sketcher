@@ -61,3 +61,42 @@ pnpm quality
 
 The full test run emits three pre-existing jsdom notices that
 `HTMLCanvasElement.getContext()` is not implemented; they do not fail tests.
+
+## Review-fix round — Canvas2D per-stroke texture metadata
+
+Review found that the original Canvas2D texture test used two copies of the
+same Denim snapshot, so it could not catch a renderer that generated every
+compatibility tile from a hard-coded texture.
+
+Added a renderer-level regression with equal-color Silk and Denim strokes. It
+uses the real `Canvas2DRenderer` and `createTextureTile` path with a captured
+test canvas document. The test verifies the exact supplied scales generate
+84×84 Silk and 38×38 Denim tiles, that their real tile command plans differ,
+and that each stroke keeps its own cached repeat pattern on a second render.
+
+### RED
+
+A temporary, uncommitted mutation hard-coded the Denim texture at the
+`createTextureTile` call. The new test failed as intended:
+
+```text
+expected [ [84, 84], [38, 38] ]
+received [ [38, 38], [38, 38] ]
+```
+
+The real `stroke.texture` argument was restored; no production code changed.
+
+### GREEN
+
+```text
+pnpm exec vitest run src/engine/render/Canvas2DRenderer.texture.test.ts \
+  src/engine/render/createTextureTile.test.ts \
+  src/engine/render/createRenderer.test.ts
+# 3 files, 24 tests passed
+
+pnpm exec vitest run src/engine/render
+# 5 files, 35 tests passed
+
+pnpm quality
+# format, lint, typecheck, 19 test files / 213 tests, and production build passed
+```
