@@ -45,6 +45,9 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    allowedHosts: ['.trycloudflare.com']
+  },
   test: {
     environment: "jsdom",
     setupFiles: "./vitest.setup.ts",
