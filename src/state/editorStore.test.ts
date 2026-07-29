@@ -197,6 +197,61 @@ describe("EditorStore", () => {
     });
   });
 
+  it("creates a project when randomUUID is unavailable on a LAN origin", async () => {
+    const getRandomValues = vi.fn((values: Uint8Array) => {
+      values.forEach((_, index) => {
+        values[index] = index;
+      });
+      return values;
+    });
+    vi.stubGlobal("crypto", { getRandomValues });
+    const projectRepository = repository();
+
+    try {
+      const store = createEditorStore({
+        repository: projectRepository,
+        now: () => "2026-07-21T12:00:00.000Z",
+      });
+
+      await expect(store.createProject()).resolves.toBeUndefined();
+
+      expect(getRandomValues).toHaveBeenCalledTimes(1);
+      expect(projectRepository.createProject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: "00010203-0405-4607-8809-0a0b0c0d0e0f",
+        }),
+      );
+      expect(store.getSnapshot()).toMatchObject({
+        view: "editor",
+        navigationBusy: false,
+        document: {
+          projectId: "00010203-0405-4607-8809-0a0b0c0d0e0f",
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("releases navigation when project ID creation fails", async () => {
+    const store = createEditorStore({
+      repository: repository(),
+      createId: () => {
+        throw new Error("ID generation unavailable");
+      },
+    });
+
+    await expect(store.createProject()).rejects.toThrow(
+      "ID generation unavailable",
+    );
+
+    expect(store.getSnapshot()).toMatchObject({
+      view: "gallery",
+      navigationBusy: false,
+      document: null,
+    });
+  });
+
   it("replays a recovered document into the active renderer when opened", async () => {
     const activeRenderer = renderer();
     const projectRepository = repository({
