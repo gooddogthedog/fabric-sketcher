@@ -1,7 +1,9 @@
 import { identity, type Matrix3 } from "../math/affine";
+import { createTextureTile, textureCacheKey } from "./createTextureTile";
 import type { Renderer, RenderStroke } from "./Renderer";
 
 const VERTEX_STRIDE = 3;
+const MAX_TEXTURE_PATTERNS = 64;
 
 export class Canvas2DRenderer implements Renderer {
   public readonly kind = "canvas2d-compat";
@@ -10,12 +12,17 @@ export class Canvas2DRenderer implements Renderer {
   private viewportMatrix: Matrix3 = identity();
   private confirmedPreview: RenderStroke | null = null;
   private predictedPreview: RenderStroke | null = null;
+  private readonly texturePatterns = new Map<string, CanvasPattern | null>();
   private devicePixelRatio = 1;
   private disposed = false;
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly context: CanvasRenderingContext2D,
+    private readonly tileDocument: Pick<
+      Document,
+      "createElement"
+    > = canvas.ownerDocument ?? globalThis.document,
   ) {}
 
   public resize(
@@ -99,13 +106,21 @@ export class Canvas2DRenderer implements Renderer {
     );
 
     for (const stroke of this.strokes.values()) {
-      drawStroke(context, stroke);
+      drawStroke(context, stroke, this.texturePattern(stroke));
     }
     if (this.confirmedPreview !== null) {
-      drawStroke(context, this.confirmedPreview);
+      drawStroke(
+        context,
+        this.confirmedPreview,
+        this.texturePattern(this.confirmedPreview),
+      );
     }
     if (this.predictedPreview !== null) {
-      drawStroke(context, this.predictedPreview);
+      drawStroke(
+        context,
+        this.predictedPreview,
+        this.texturePattern(this.predictedPreview),
+      );
     }
     context.restore();
   }
@@ -117,13 +132,44 @@ export class Canvas2DRenderer implements Renderer {
 
     this.disposed = true;
     this.strokes.clear();
+    this.texturePatterns.clear();
     this.clearPreview();
+  }
+
+  private texturePattern(stroke: RenderStroke): CanvasPattern | null {
+    const key = textureCacheKey(stroke.color, stroke.texture);
+    const cached = this.texturePatterns.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    let pattern: CanvasPattern | null = null;
+    try {
+      const tile = createTextureTile(
+        this.tileDocument,
+        stroke.color,
+        stroke.texture,
+      );
+      pattern = this.context.createPattern(tile, "repeat");
+    } catch {
+      // A compatibility renderer must retain the solid stroke when patterns fail.
+    }
+
+    if (this.texturePatterns.size >= MAX_TEXTURE_PATTERNS) {
+      const oldestKey = this.texturePatterns.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.texturePatterns.delete(oldestKey);
+      }
+    }
+    this.texturePatterns.set(key, pattern);
+    return pattern;
   }
 }
 
 function drawStroke(
   context: CanvasRenderingContext2D,
   stroke: RenderStroke,
+  pattern: CanvasPattern | null,
 ): void {
   const vertexCount = Math.floor(stroke.mesh.length / VERTEX_STRIDE);
   const pairedVertexCount = vertexCount - (vertexCount % 2);
@@ -132,7 +178,8 @@ function drawStroke(
   }
 
   const [red, green, blue, colorAlpha] = stroke.color;
-  context.fillStyle = `rgb(${toByte(red)} ${toByte(green)} ${toByte(blue)})`;
+  context.fillStyle =
+    pattern ?? `rgb(${toByte(red)} ${toByte(green)} ${toByte(blue)})`;
   for (
     let firstVertex = 0;
     firstVertex + 3 < pairedVertexCount;
