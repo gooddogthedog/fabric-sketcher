@@ -82,6 +82,7 @@ export function createDrawingController(
   const getDevicePixelRatio =
     options.getDevicePixelRatio ?? (() => globalThis.devicePixelRatio || 1);
   let activePencilContact: Point2D | null = null;
+  let activePencilPointerId: number | null = null;
   let pencilDownBrush: BrushSnapshot | null = null;
   let renderFrame: number | null = null;
   let disposed = false;
@@ -137,7 +138,11 @@ export function createDrawingController(
     if (event.pointerType !== "pen") {
       return;
     }
+    if (activePencilPointerId !== null) {
+      return;
+    }
     event.preventDefault();
+    activePencilPointerId = event.pointerId;
     pencilDownBrush = immutableBrush(options.getBrush());
     activePencilContact = toLocalPoint(event, surface);
     capturePointer(surface, event.pointerId);
@@ -151,6 +156,9 @@ export function createDrawingController(
       return;
     }
     if (event.pointerType !== "pen") {
+      return;
+    }
+    if (event.pointerId !== activePencilPointerId) {
       return;
     }
     event.preventDefault();
@@ -168,10 +176,14 @@ export function createDrawingController(
     if (event.pointerType !== "pen") {
       return;
     }
+    if (event.pointerId !== activePencilPointerId) {
+      return;
+    }
     event.preventDefault();
     activePencilContact = toLocalPoint(event, surface);
     strokeSession.handle(toInputBatch(event, "up", surface, viewport));
     activePencilContact = null;
+    activePencilPointerId = null;
     pencilDownBrush = null;
     releasePointer(surface, event.pointerId);
   };
@@ -186,9 +198,13 @@ export function createDrawingController(
     if (event.pointerType !== "pen") {
       return;
     }
+    if (event.pointerId !== activePencilPointerId) {
+      return;
+    }
     event.preventDefault();
     strokeSession.handle(toInputBatch(event, "cancel", surface, viewport));
     activePencilContact = null;
+    activePencilPointerId = null;
     pencilDownBrush = null;
     releasePointer(surface, event.pointerId);
   };
@@ -197,8 +213,12 @@ export function createDrawingController(
     if (event.pointerType === "touch") {
       viewport.onPointerCancel(toContact(event, surface));
     } else if (event.pointerType === "pen") {
+      if (event.pointerId !== activePencilPointerId) {
+        return;
+      }
       strokeSession.lostPointerCapture(event.pointerId);
       activePencilContact = null;
+      activePencilPointerId = null;
       pencilDownBrush = null;
     }
   };

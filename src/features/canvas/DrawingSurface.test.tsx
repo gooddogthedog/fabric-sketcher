@@ -346,6 +346,48 @@ describe("DrawingSurface", () => {
     controller.dispose();
   });
 
+  it("keeps the owned Pencil brush through foreign pen contacts", () => {
+    const surface = document.createElement("canvas");
+    surface.setPointerCapture = vi.fn();
+    surface.releasePointerCapture = vi.fn();
+    const renderer = mockRenderer();
+    const committed: BrushSnapshot[] = [];
+    let selectedBrush = getBrushPreset("denim-v1");
+
+    const controller = createDrawingController({
+      surface,
+      renderer,
+      document: createDocument({ projectId: "project-1", title: "Brush test" }),
+      commitStroke: (_samples, brush) => {
+        committed.push(brush);
+      },
+      getBrush: () => selectedBrush,
+      viewportFactory: () => mockViewport(),
+    });
+
+    surface.dispatchEvent(pointerEvent("pointerdown", sample(10, 20, 100)));
+    renderer.previewStroke.mockClear();
+    selectedBrush = getBrushPreset("silk-v1");
+    const foreign = { ...sample(50, 60, 105), pointerId: 8 };
+    surface.dispatchEvent(pointerEvent("pointerdown", foreign));
+    surface.dispatchEvent(pointerEvent("pointerup", foreign));
+    surface.dispatchEvent(pointerEvent("pointercancel", foreign));
+    surface.dispatchEvent(pointerEvent("lostpointercapture", foreign));
+
+    surface.dispatchEvent(pointerEvent("pointermove", sample(30, 40, 110)));
+    expect(renderer.previewStroke).toHaveBeenLastCalledWith(
+      expect.objectContaining({ color: [41 / 255, 79 / 255, 104 / 255, 1] }),
+      null,
+    );
+
+    surface.dispatchEvent(pointerEvent("pointerup", sample(40, 50, 120)));
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.id).toBe("denim-v1");
+    expect(surface.setPointerCapture).toHaveBeenCalledTimes(1);
+    expect(surface.setPointerCapture).toHaveBeenCalledWith(7);
+    controller.dispose();
+  });
+
   it("renders confirmed and predicted Pencil previews, then commits once on lift", async () => {
     const repository = projectRepository();
     const store = await openStore(repository);
