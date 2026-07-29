@@ -227,12 +227,14 @@ export class WebGL2Renderer implements Renderer {
       this.initializeGpuState();
       this.rebuildRetainedBuffers();
       this.lost = false;
+      this.render(performance.now());
       this.options.onStatus?.({
         type: "context-restored",
         recoverable: true,
         message: "WebGL context restored; retained strokes were replayed.",
       });
     } catch (error) {
+      this.lost = true;
       this.releaseGpuState(true);
       this.options.onStatus?.({
         type: "context-restore-failed",

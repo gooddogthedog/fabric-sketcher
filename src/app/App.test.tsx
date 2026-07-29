@@ -1,3 +1,6 @@
+// @ts-expect-error -- Vitest executes under Node; the app build intentionally
+// omits Node types.
+import { readFileSync } from "node:fs";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +13,13 @@ import type { RendererSelection } from "../engine/render/createRenderer";
 import type { ProjectRepository } from "../platform/persistence/types";
 import { createEditorStore } from "../state/editorStore";
 import { App } from "./App";
+
+const PROJECT_DIRECTORY = (
+  globalThis as typeof globalThis & {
+    process: { cwd(): string };
+  }
+).process.cwd();
+const APP_STYLES = readFileSync(`${PROJECT_DIRECTORY}/src/app/app.css`, "utf8");
 
 class ResizeObserverMock {
   observe() {}
@@ -91,6 +101,39 @@ function repository(
 }
 
 describe("App", () => {
+  it("keeps the visible save Retry target at least 56 pixels square", async () => {
+    const style = document.createElement("style");
+    style.textContent = APP_STYLES;
+    document.head.append(style);
+    const projectRepository = repository({
+      appendOperation: vi.fn(async () => {
+        throw new Error("Local save failed");
+      }),
+    });
+    const store = createEditorStore({ repository: projectRepository });
+    const user = userEvent.setup();
+    render(<App rendererFactory={rendererFactory()} store={store} />);
+
+    try {
+      await waitFor(() =>
+        expect(screen.getByText("Recent design")).toBeVisible(),
+      );
+      await user.click(screen.getByRole("button", { name: /Recent design/ }));
+      await user.click(screen.getByRole("button", { name: "Layers" }));
+      await user.click(screen.getByRole("button", { name: "Add foundation" }));
+      await user.click(
+        screen.getByRole("button", { name: "Neutral figure — Front" }),
+      );
+
+      const retry = await screen.findByRole("button", { name: "Retry save" });
+      const computed = getComputedStyle(retry);
+      expect(Number.parseFloat(computed.minWidth)).toBeGreaterThanOrEqual(56);
+      expect(Number.parseFloat(computed.minHeight)).toBeGreaterThanOrEqual(56);
+    } finally {
+      style.remove();
+    }
+  });
+
   it("presents the repository-ordered editorial gallery and local storage access", async () => {
     const store = createEditorStore({ repository: repository() });
     render(<App store={store} />);

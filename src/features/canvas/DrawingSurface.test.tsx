@@ -63,6 +63,21 @@ class ResizeObserverMock {
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverMock);
   vi.stubGlobal("onpointerrawupdate", undefined);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async () => {
+      return {
+        ok: true,
+        url: "",
+        text: async () => `<svg xmlns="http://www.w3.org/2000/svg">
+          <symbol id="foundation-outline" />
+          <symbol id="foundation-center" />
+          <symbol id="foundation-levels" />
+          <symbol id="foundation-construction" />
+        </svg>`,
+      } as Response;
+    }),
+  );
 });
 
 afterEach(() => {
@@ -515,7 +530,7 @@ describe("DrawingSurface", () => {
     await waitFor(() =>
       expect(screen.getByTestId("foundation-transform")).toHaveAttribute(
         "opacity",
-        "0.34",
+        "0.35",
       ),
     );
     expect(repository.appendOperation).not.toHaveBeenCalled();
@@ -523,7 +538,7 @@ describe("DrawingSurface", () => {
     expect(view.rendererFactory).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Layers" }));
-    expect(screen.getByText("34%")).toBeVisible();
+    expect(screen.getByText("35%")).toBeVisible();
     expect(repository.appendOperation).not.toHaveBeenCalled();
   });
 
@@ -597,6 +612,57 @@ describe("DrawingSurface", () => {
       expect(Number.parseFloat(brushComputed.minHeight)).toBeGreaterThanOrEqual(
         56,
       );
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("keeps every visible Layers control target at least 56 pixels square", async () => {
+    const style = document.createElement("style");
+    style.textContent = APP_STYLES;
+    document.head.append(style);
+    const user = userEvent.setup();
+    const store = await openStore(projectRepository());
+    await store.setFoundation(
+      createFoundationState({
+        assetId: "neutral-figure-front",
+        assetVersion: 1,
+        foundationType: "figure",
+        visibleLandmarkGroups: ["outline", "center", "levels"],
+      }),
+    );
+    renderSurface(store, mockRenderer(), mockViewport());
+
+    const expectMinimumTarget = (target: Element) => {
+      const computed = getComputedStyle(target);
+      expect(Number.parseFloat(computed.minWidth)).toBeGreaterThanOrEqual(56);
+      expect(Number.parseFloat(computed.minHeight)).toBeGreaterThanOrEqual(56);
+    };
+
+    try {
+      const handle = screen.getByRole("button", { name: "Layers" });
+      await user.click(handle);
+      const panel = screen.getByRole("complementary", { name: "Layers" });
+      const visibleTargets = [
+        handle,
+        ...Array.from(panel.querySelectorAll("button")),
+        ...screen
+          .getAllByRole("checkbox")
+          .map((checkbox) => checkbox.closest("label")),
+        ...screen.getAllByRole("slider"),
+      ].filter((target): target is HTMLElement => target !== null);
+
+      for (const target of visibleTargets) {
+        expectMinimumTarget(target);
+      }
+
+      await user.click(
+        screen.getByRole("button", { name: "Replace foundation" }),
+      );
+      const choices = screen.getByLabelText("Foundation choices");
+      for (const choice of choices.querySelectorAll("button")) {
+        expectMinimumTarget(choice);
+      }
     } finally {
       style.remove();
     }
@@ -742,6 +808,84 @@ describe("DrawingSurface", () => {
         brush: expect.objectContaining({ id: "denim-v1" }),
       }),
     ]);
+  });
+
+  it("keeps artwork mounted while a corrupt bundled Foundation becomes unavailable and Restore retries it", async () => {
+    const initial = {
+      ...createDocument({
+        projectId: "project-1",
+        title: "Bundled Foundation recovery",
+      }),
+      foundation: createFoundationState({
+        assetId: "neutral-figure-front",
+        assetVersion: 1,
+        foundationType: "figure",
+        visibleLandmarkGroups: ["outline", "center"],
+      }),
+    };
+    const corrupt = {
+      ok: true,
+      url: "http://localhost:3000/foundations/neutral-figure-front-v1.svg",
+      text: async () =>
+        `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="foundation-outline" /></svg>`,
+    } as Response;
+    const restored = {
+      ok: true,
+      url: "http://localhost:3000/foundations/neutral-figure-front-v1.svg",
+      text: async () => `<svg xmlns="http://www.w3.org/2000/svg">
+        <symbol id="foundation-outline" />
+        <symbol id="foundation-center" />
+        <symbol id="foundation-levels" />
+        <symbol id="foundation-construction" />
+      </svg>`,
+    } as Response;
+    const fetchAsset = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(corrupt)
+      .mockResolvedValueOnce(restored);
+    vi.stubGlobal("fetch", fetchAsset);
+    const repository = projectRepository();
+    vi.mocked(repository.loadProject).mockResolvedValueOnce(initial);
+    const store = await openStore(repository);
+    const renderer = mockRenderer();
+    const view = renderSurface(store, renderer, mockViewport());
+    const initialCanvas = view.surface;
+    const user = userEvent.setup();
+
+    await waitFor(() =>
+      expect(
+        view.container.querySelector("[data-foundation-missing='true']"),
+      ).not.toBeNull(),
+    );
+    expect(view.surface).toBe(initialCanvas);
+    expect(view.rendererFactory).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Layers" }));
+    expect(screen.getByText("Foundation unavailable")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Restore foundation" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Replace foundation" }),
+    ).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "Restore foundation" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("foundation-outline-use")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Foundation unavailable")).toBeNull();
+    expect(fetchAsset).toHaveBeenLastCalledWith(
+      "http://localhost:3000/foundations/neutral-figure-front-v1.svg",
+      expect.objectContaining({
+        cache: "reload",
+        credentials: "same-origin",
+      }),
+    );
+    expect(view.surface).toBe(initialCanvas);
+    expect(view.rendererFactory).toHaveBeenCalledTimes(1);
   });
 
   it("forwards fitted and subscribed viewport matrices to the overlay", async () => {

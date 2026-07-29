@@ -21,7 +21,7 @@ describe("foundation state", () => {
       assetId: "neutral-figure-front",
       assetVersion: 1,
       foundationType: "figure",
-      opacity: 0.34,
+      opacity: 0.35,
       visible: true,
       locked: true,
       includeInExport: false,

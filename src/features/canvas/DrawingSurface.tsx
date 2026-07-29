@@ -11,6 +11,7 @@ import {
   FoundationOverlay,
   type FoundationOverlayHandle,
 } from "../foundations/FoundationOverlay";
+import type { FoundationAssetHealth } from "../foundations/foundationAssetHealth";
 import { LayersShelf, type EdgeShelfId } from "../foundations/LayersShelf";
 import {
   createDrawingController,
@@ -37,6 +38,9 @@ export function DrawingSurface({
   const [layersOpened, setLayersOpened] = useState(false);
   const [foundationPreview, setFoundationPreview] =
     useState<DesignDocument["foundation"]>(null);
+  const [foundationAssetHealth, setFoundationAssetHealth] =
+    useState<FoundationAssetHealth | null>(null);
+  const [foundationAssetRetryToken, setFoundationAssetRetryToken] = useState(0);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { projectId, title, width, height } = document;
 
@@ -135,7 +139,9 @@ export function DrawingSurface({
         />
         <div className="drawing-surface__paper">
           <FoundationOverlay
+            assetRetryToken={foundationAssetRetryToken}
             foundation={foundationPreview ?? foundation}
+            onAssetHealthChange={setFoundationAssetHealth}
             onCommitTransform={commitFoundationTransform}
             ref={foundationOverlayRef}
           />
@@ -143,8 +149,12 @@ export function DrawingSurface({
         </div>
         <LayersShelf
           attention={untouched && !layersOpened}
+          assetHealth={foundationAssetHealth}
           onOpenChange={(open) => changeShelf("layers", open)}
           onPreviewFoundation={setFoundationPreview}
+          onRestoreFoundation={() =>
+            setFoundationAssetRetryToken((token) => token + 1)
+          }
           open={openShelf === "layers"}
           store={store}
         />

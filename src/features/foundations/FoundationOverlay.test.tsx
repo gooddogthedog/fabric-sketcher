@@ -1,5 +1,5 @@
 import { createRef } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFoundationState } from "../../domain/document/foundationState";
 import type { FoundationState } from "../../domain/document/types";
@@ -131,6 +131,19 @@ describe("FoundationOverlay", () => {
         onCommitTransform={vi.fn()}
       />,
     );
+
+    expect(
+      container.querySelector("[data-foundation-missing='true']"),
+    ).not.toBeNull();
+    expect(container.querySelector("use")).toBeNull();
+  });
+
+  it("marks a known pinned asset unavailable when its SVG use fails to load", () => {
+    const { container } = render(
+      <FoundationOverlay foundation={figure} onCommitTransform={vi.fn()} />,
+    );
+
+    fireEvent.error(screen.getByTestId("foundation-outline-use"));
 
     expect(
       container.querySelector("[data-foundation-missing='true']"),

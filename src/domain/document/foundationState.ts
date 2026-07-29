@@ -26,7 +26,7 @@ export function createFoundationState(
   return freezeFoundation({
     ...seed,
     transform: identity(),
-    opacity: 0.34,
+    opacity: 0.35,
     visible: true,
     locked: true,
     includeInExport: false,

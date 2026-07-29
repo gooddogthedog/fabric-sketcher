@@ -289,7 +289,8 @@ canvas:focus-visible {
 }
 
 .save-status--error button {
-  min-height: 36px;
+  min-width: 56px;
+  min-height: 56px;
   border: 1px solid currentColor;
   border-radius: 6px;
   padding-inline: 12px;
@@ -565,6 +566,7 @@ canvas:focus-visible {
 
 .layers-shelf__handle {
   width: 56px;
+  min-width: 56px;
   min-height: 144px;
   border: 1px solid var(--color-line);
   border-radius: 6px 0 0 6px;
@@ -641,6 +643,7 @@ canvas:focus-visible {
 .layers-shelf__close {
   display: grid;
   width: 56px;
+  min-width: 56px;
   min-height: 56px;
   place-items: center;
   border: 0;
@@ -741,6 +744,7 @@ canvas:focus-visible {
 
 .layers-shelf__choice {
   display: flex;
+  min-width: 56px;
   min-height: 56px;
   align-items: center;
   gap: 12px;
@@ -767,6 +771,7 @@ canvas:focus-visible {
 }
 
 .layers-shelf__action {
+  min-width: 56px;
   min-height: 56px;
   border: 0;
   border-block-start: 1px solid var(--color-line);
@@ -823,6 +828,7 @@ canvas:focus-visible {
 
 .layers-shelf__landmarks label {
   display: flex;
+  min-width: 56px;
   min-height: 56px;
   align-items: center;
   gap: 12px;
@@ -864,7 +870,8 @@ canvas:focus-visible {
 
 .layers-shelf__range input {
   width: 100%;
-  min-height: 32px;
+  min-width: 56px;
+  min-height: 56px;
   margin: 0;
   accent-color: var(--color-accent);
   cursor: pointer;

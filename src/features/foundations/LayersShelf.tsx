@@ -10,6 +10,10 @@ import {
   getFoundationAssets,
 } from "./foundationCatalog";
 import {
+  foundationAssetHealthMatches,
+  type FoundationAssetHealth,
+} from "./foundationAssetHealth";
+import {
   flipFoundation,
   replaceFoundationAsset,
   setFoundationScale,
@@ -27,7 +31,9 @@ export type LayersShelfProps = ControlledShelfProps &
   Readonly<{
     store: EditorStore;
     attention?: boolean;
+    assetHealth?: FoundationAssetHealth | null;
     onPreviewFoundation?: (foundation: FoundationState | null) => void;
+    onRestoreFoundation?: () => void;
   }>;
 
 type PendingRange = Readonly<{
@@ -40,13 +46,19 @@ export function LayersShelf({
   open,
   onOpenChange,
   attention = false,
+  assetHealth,
   onPreviewFoundation,
+  onRestoreFoundation,
 }: LayersShelfProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const foundation = snapshot.document?.foundation ?? null;
   const asset = foundation
     ? getFoundationAsset(foundation.assetId, foundation.assetVersion)
     : null;
+  const assetUnavailable =
+    asset !== null &&
+    foundationAssetHealthMatches(assetHealth, asset) &&
+    assetHealth?.status === "unavailable";
   const [pickerOpen, setPickerOpen] = useState(false);
   const [opacityPreview, setOpacityPreview] = useState<number | null>(null);
   const [scalePreview, setScalePreview] = useState<number | null>(null);
@@ -159,7 +171,7 @@ export function LayersShelf({
                 pickerOpen={pickerOpen}
                 selectAsset={selectAsset}
               />
-            ) : asset ? (
+            ) : asset && !assetUnavailable ? (
               <AvailableFoundation
                 asset={asset}
                 foundation={foundation}
@@ -179,6 +191,7 @@ export function LayersShelf({
               <UnavailableFoundation
                 onRemove={() => commit(null)}
                 onReplace={() => setPickerOpen(true)}
+                onRestore={asset ? onRestoreFoundation : undefined}
                 pickerOpen={pickerOpen}
                 selectAsset={selectAsset}
               />
@@ -373,11 +386,13 @@ function UnavailableFoundation({
   pickerOpen,
   onReplace,
   onRemove,
+  onRestore,
   selectAsset,
 }: Readonly<{
   pickerOpen: boolean;
   onReplace: () => void;
   onRemove: () => void;
+  onRestore?: () => void;
   selectAsset: (asset: FoundationAsset) => void;
 }>) {
   return (
@@ -390,6 +405,16 @@ function UnavailableFoundation({
         <FoundationPicker selectAsset={selectAsset} />
       ) : (
         <div className="layers-shelf__button-grid">
+          {onRestore ? (
+            <button
+              aria-label="Restore foundation"
+              className="layers-shelf__action"
+              onClick={onRestore}
+              type="button"
+            >
+              Restore
+            </button>
+          ) : null}
           <button
             aria-label="Replace foundation"
             className="layers-shelf__action"
@@ -398,14 +423,16 @@ function UnavailableFoundation({
           >
             Replace
           </button>
-          <button
-            aria-label="Remove foundation"
-            className="layers-shelf__action layers-shelf__action--danger"
-            onClick={onRemove}
-            type="button"
-          >
-            Remove
-          </button>
+          {!onRestore ? (
+            <button
+              aria-label="Remove foundation"
+              className="layers-shelf__action layers-shelf__action--danger"
+              onClick={onRemove}
+              type="button"
+            >
+              Remove
+            </button>
+          ) : null}
         </div>
       )}
     </section>

@@ -1,8 +1,10 @@
 import {
   forwardRef,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
+  useState,
 } from "react";
 import type { FoundationState } from "../../domain/document/types";
 import {
@@ -12,6 +14,11 @@ import {
   type Matrix3,
 } from "../../engine/math/affine";
 import { createFoundationTransformController } from "./createFoundationTransformController";
+import {
+  foundationAssetHealthMatches,
+  type FoundationAssetHealth,
+  verifyBundledFoundationAsset,
+} from "./foundationAssetHealth";
 import { getFoundationAsset } from "./foundationCatalog";
 import { svgMatrix } from "./svgMatrix";
 
@@ -24,12 +31,17 @@ export type FoundationOverlayHandle = Readonly<{
 export type FoundationOverlayProps = Readonly<{
   foundation: FoundationState | null;
   onCommitTransform: (transform: Matrix3) => void | PromiseLike<void>;
+  assetRetryToken?: number;
+  onAssetHealthChange?: (health: FoundationAssetHealth | null) => void;
 }>;
 
 export const FoundationOverlay = forwardRef<
   FoundationOverlayHandle,
   FoundationOverlayProps
->(function FoundationOverlay({ foundation, onCommitTransform }, ref) {
+>(function FoundationOverlay(
+  { foundation, onCommitTransform, assetRetryToken = 0, onAssetHealthChange },
+  ref,
+) {
   const transformRef = useRef<SVGGElement>(null);
   const interactionRef = useRef<SVGSVGElement>(null);
   const boundaryTransformRef = useRef<SVGGElement>(null);
@@ -37,6 +49,9 @@ export const FoundationOverlay = forwardRef<
   const commitTransformRef = useRef(onCommitTransform);
   const viewportRef = useRef<Matrix3>(identity());
   const previewTransformRef = useRef<Matrix3 | null>(null);
+  const [assetHealth, setAssetHealth] = useState<FoundationAssetHealth | null>(
+    null,
+  );
   foundationRef.current = foundation;
   commitTransformRef.current = onCommitTransform;
 
@@ -75,15 +90,63 @@ export const FoundationOverlay = forwardRef<
   const asset = foundation
     ? getFoundationAsset(foundation.assetId, foundation.assetVersion)
     : null;
-  const missing = foundation !== null && asset === null;
+  const unavailable =
+    asset !== null &&
+    foundationAssetHealthMatches(assetHealth, asset) &&
+    assetHealth?.status === "unavailable";
+  const missing = foundation !== null && (asset === null || unavailable);
   const interactive =
-    foundation !== null && asset !== null && !foundation.locked;
+    foundation !== null && asset !== null && !unavailable && !foundation.locked;
   const visibleGroups =
-    foundation?.visible && asset
+    foundation?.visible && asset && !unavailable
       ? asset.groups.filter((group) =>
           foundation.visibleLandmarkGroups.includes(group.id),
         )
       : [];
+
+  useEffect(() => {
+    if (!asset) {
+      setAssetHealth(null);
+      onAssetHealthChange?.(null);
+      return;
+    }
+
+    let active = true;
+    const controller = new AbortController();
+    void verifyBundledFoundationAsset(asset, {
+      reload: assetRetryToken > 0,
+      signal: controller.signal,
+    }).then((available) => {
+      if (!active) {
+        return;
+      }
+      const health: FoundationAssetHealth = {
+        assetId: asset.id,
+        assetVersion: asset.version,
+        status: available ? "available" : "unavailable",
+      };
+      setAssetHealth(health);
+      onAssetHealthChange?.(health);
+    });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [asset, assetRetryToken, onAssetHealthChange]);
+
+  const markAssetUnavailable = () => {
+    if (!asset) {
+      return;
+    }
+    const health: FoundationAssetHealth = {
+      assetId: asset.id,
+      assetVersion: asset.version,
+      status: "unavailable",
+    };
+    setAssetHealth(health);
+    onAssetHealthChange?.(health);
+  };
 
   useLayoutEffect(() => {
     const surface = interactionRef.current;
@@ -109,6 +172,7 @@ export const FoundationOverlay = forwardRef<
         aria-hidden="true"
         className="foundation-overlay__guide"
         data-foundation-missing={missing ? "true" : undefined}
+        onErrorCapture={markAssetUnavailable}
       >
         {foundation && asset ? (
           <g
@@ -127,6 +191,7 @@ export const FoundationOverlay = forwardRef<
                 height={asset.viewBox.height}
                 href={`${asset.sourceUrl}#${group.symbolId}`}
                 key={group.id}
+                onError={markAssetUnavailable}
                 vectorEffect="non-scaling-stroke"
                 width={asset.viewBox.width}
                 x={asset.viewBox.x}

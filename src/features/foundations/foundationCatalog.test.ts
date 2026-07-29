@@ -62,7 +62,7 @@ describe("foundation catalog", () => {
       assetVersion: 1,
       foundationType: "dress-form",
       visibleLandmarkGroups: ["outline", "center", "levels"],
-      opacity: 0.34,
+      opacity: 0.35,
       visible: true,
       locked: true,
       includeInExport: false,

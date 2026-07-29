@@ -428,7 +428,7 @@ describe("createRenderer", () => {
     ]);
   });
 
-  it("pauses GPU drawing on context loss and replays all retained operations on restore", () => {
+  it("pauses GPU drawing on context loss and automatically replays all retained operations on restore", () => {
     const firstContext = new FakeWebGL2Context();
     const restoredContext = new FakeWebGL2Context();
     const statuses: RendererStatus[] = [];
@@ -456,7 +456,6 @@ describe("createRenderer", () => {
 
     currentContext = restoredContext;
     target.dispatchEvent(new Event("webglcontextrestored"));
-    renderer.render(2);
 
     expect(restoredContext.bufferUploads).toHaveLength(2);
     expect(restoredContext.drawnVertexCounts).toEqual([4, 4]);

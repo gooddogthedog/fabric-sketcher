@@ -189,7 +189,7 @@ describe("WebGL2 procedural material texture", () => {
     ]);
   });
 
-  it("recreates texture locations and replays retained snapshots after context restoration", () => {
+  it("recreates texture locations and automatically repaints retained snapshots after context restoration", () => {
     const initial = new TextureCaptureWebGL2Context();
     const restored = new TextureCaptureWebGL2Context();
     let active = initial;
@@ -202,7 +202,6 @@ describe("WebGL2 procedural material texture", () => {
     target.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
     active = restored;
     target.dispatchEvent(new Event("webglcontextrestored"));
-    renderer.render(999_999);
 
     expect(restored.requestedUniforms).toEqual(
       expect.arrayContaining([

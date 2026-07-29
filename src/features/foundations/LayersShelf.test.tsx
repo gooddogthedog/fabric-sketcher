@@ -96,7 +96,12 @@ describe("LayersShelf", () => {
     expect(store.getSnapshot().document?.foundation).toMatchObject({
       assetId: "neutral-figure-front",
       assetVersion: 1,
+      opacity: 0.35,
     });
+    expect(
+      screen.getByRole("slider", { name: "Foundation opacity" }),
+    ).toHaveValue("0.35");
+    expect(screen.getByText("35%")).toBeVisible();
   });
 
   it("journals each accepted button and checkbox edit exactly once", async () => {
@@ -159,7 +164,7 @@ describe("LayersShelf", () => {
     expect(opacity).toHaveValue("0.65");
     expect(screen.getByText("65%")).toBeVisible();
     expect(repository.appendOperation).not.toHaveBeenCalled();
-    expect(store.getSnapshot().document?.foundation?.opacity).toBe(0.34);
+    expect(store.getSnapshot().document?.foundation?.opacity).toBe(0.35);
 
     fireEvent.pointerUp(opacity);
     fireEvent.blur(opacity);
@@ -214,7 +219,7 @@ describe("LayersShelf", () => {
       assetId: "dress-form-front",
       assetVersion: 1,
       locked: true,
-      opacity: 0.34,
+      opacity: 0.35,
       visibleLandmarkGroups: ["outline", "center"],
     });
   });
@@ -311,7 +316,7 @@ describe("LayersShelf", () => {
       expect(repository.appendOperation).not.toHaveBeenCalled();
 
       await user.click(screen.getByRole("button", { name: "Layers" }));
-      expect(screen.getByText("34%")).toBeVisible();
+      expect(screen.getByText("35%")).toBeVisible();
       expect(repository.appendOperation).not.toHaveBeenCalled();
       canvas.remove();
     },
