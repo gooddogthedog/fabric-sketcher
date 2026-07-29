@@ -1,4 +1,11 @@
 import { useEffect, useSyncExternalStore } from "react";
+import type { HexColor } from "../../domain/document/types";
+import {
+  MAX_BRUSH_OPACITY,
+  MAX_BRUSH_SIZE,
+  MIN_BRUSH_OPACITY,
+  MIN_BRUSH_SIZE,
+} from "../../engine/brush/brushEdits";
 import { BRUSH_PRESETS } from "../../engine/brush/presets";
 import type { EditorStore } from "../../state/editorStore";
 import type { ControlledShelfProps } from "../foundations/LayersShelf";
@@ -88,6 +95,74 @@ export function BrushShelf({ store, open, onOpenChange }: BrushShelfProps) {
                 </label>
               );
             })}
+          </div>
+          <div className="brush-shelf__controls">
+            <label className="brush-shelf__range">
+              <span>
+                <span>Size</span>
+                <output>{Math.round(snapshot.brush.size)} px</output>
+              </span>
+              <input
+                aria-label="Brush size"
+                max={MAX_BRUSH_SIZE}
+                min={MIN_BRUSH_SIZE}
+                onChange={(event) =>
+                  store.setBrushSize(event.currentTarget.valueAsNumber)
+                }
+                step={1}
+                type="range"
+                value={snapshot.brush.size}
+              />
+            </label>
+            <label className="brush-shelf__range">
+              <span>
+                <span>Opacity</span>
+                <output>{Math.round(snapshot.brush.opacity * 100)}%</output>
+              </span>
+              <input
+                aria-label="Brush opacity"
+                max={MAX_BRUSH_OPACITY}
+                min={MIN_BRUSH_OPACITY}
+                onChange={(event) =>
+                  store.setBrushOpacity(event.currentTarget.valueAsNumber)
+                }
+                step={0.05}
+                type="range"
+                value={snapshot.brush.opacity}
+              />
+            </label>
+            <label className="brush-shelf__color">
+              <span>Color</span>
+              <input
+                aria-label="Brush color"
+                onChange={(event) =>
+                  store.setBrushColor(event.currentTarget.value as HexColor)
+                }
+                type="color"
+                value={snapshot.brush.color}
+              />
+            </label>
+            {snapshot.recentColors.length > 0 ? (
+              <div aria-label="Recent colors" className="brush-shelf__recents">
+                {snapshot.recentColors.map((color) => (
+                  <button
+                    aria-label={`Use color ${color}`}
+                    className="brush-shelf__recent"
+                    key={color}
+                    onClick={() => store.setBrushColor(color)}
+                    style={{ backgroundColor: color }}
+                    type="button"
+                  />
+                ))}
+              </div>
+            ) : null}
+            <button
+              className="brush-shelf__reset"
+              onClick={() => store.resetBrush()}
+              type="button"
+            >
+              Reset brush to preset
+            </button>
           </div>
         </aside>
       ) : null}

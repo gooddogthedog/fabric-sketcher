@@ -1074,3 +1074,82 @@ canvas:focus-visible {
     border-color: var(--color-accent);
   }
 }
+
+.brush-shelf__controls {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-block-start: 1px solid var(--color-line);
+}
+
+.brush-shelf__range {
+  display: grid;
+  gap: 6px;
+  min-block-size: 56px;
+}
+
+.brush-shelf__range > span {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.brush-shelf__range input[type="range"] {
+  accent-color: var(--color-accent);
+  min-block-size: 32px;
+  inline-size: 100%;
+}
+
+.brush-shelf__color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-block-size: 56px;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.brush-shelf__color input[type="color"] {
+  min-inline-size: 56px;
+  min-block-size: 56px;
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: none;
+}
+
+.brush-shelf__recents {
+  display: flex;
+  gap: 8px;
+}
+
+.brush-shelf__recent {
+  min-inline-size: 56px;
+  min-block-size: 56px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.brush-shelf__recent:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.brush-shelf__reset {
+  min-block-size: 56px;
+  padding: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.brush-shelf__reset:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
