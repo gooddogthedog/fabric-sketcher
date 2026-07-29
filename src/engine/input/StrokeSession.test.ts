@@ -49,20 +49,33 @@ describe("StrokeSession", () => {
     expect(onPreview).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["touch", "mouse"] as const)(
-    "does not start a paint session from %s input",
-    (pointerType) => {
-      const session = new StrokeSession({
-        onPreview: vi.fn(),
-        onCommit: vi.fn(),
-        onCancel: vi.fn(),
-      });
+  it("does not start a paint session from touch input", () => {
+    const session = new StrokeSession({
+      onPreview: vi.fn(),
+      onCommit: vi.fn(),
+      onCancel: vi.fn(),
+    });
 
-      session.handle(batch({ pointerType }));
+    session.handle(batch({ pointerType: "touch" }));
 
-      expect(session.state).toEqual({ kind: "idle" });
-    },
-  );
+    expect(session.state).toEqual({ kind: "idle" });
+  });
+
+  it("begins a drawing session from mouse input", () => {
+    const session = new StrokeSession({
+      onPreview: vi.fn(),
+      onCommit: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    session.handle(batch({ pointerType: "mouse" }));
+
+    expect(session.state).toMatchObject({
+      kind: "drawing",
+      pointerId: 1,
+      confirmed: [sample(1)],
+    });
+  });
 
   it("replaces the predicted tail when new confirmed samples arrive", () => {
     const onPreview = vi.fn();

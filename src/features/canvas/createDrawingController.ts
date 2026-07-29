@@ -136,7 +136,7 @@ export function createDrawingController(
       capturePointer(surface, event.pointerId);
       return;
     }
-    if (event.pointerType !== "pen") {
+    if (event.pointerType !== "pen" && event.pointerType !== "mouse") {
       return;
     }
     if (activePencilPointerId !== null) {
@@ -156,7 +156,7 @@ export function createDrawingController(
       viewport.onPointerMove(toContact(event, surface));
       return;
     }
-    if (event.pointerType !== "pen") {
+    if (event.pointerType !== "pen" && event.pointerType !== "mouse") {
       return;
     }
     if (event.pointerId !== activePencilPointerId) {
@@ -174,7 +174,7 @@ export function createDrawingController(
       releasePointer(surface, event.pointerId);
       return;
     }
-    if (event.pointerType !== "pen") {
+    if (event.pointerType !== "pen" && event.pointerType !== "mouse") {
       return;
     }
     if (event.pointerId !== activePencilPointerId) {
@@ -196,7 +196,7 @@ export function createDrawingController(
       releasePointer(surface, event.pointerId);
       return;
     }
-    if (event.pointerType !== "pen") {
+    if (event.pointerType !== "pen" && event.pointerType !== "mouse") {
       return;
     }
     if (event.pointerId !== activePencilPointerId) {
@@ -213,7 +213,7 @@ export function createDrawingController(
   const handleLostPointerCapture = (event: PointerEvent) => {
     if (event.pointerType === "touch") {
       viewport.onPointerCancel(toContact(event, surface));
-    } else if (event.pointerType === "pen") {
+    } else if (event.pointerType === "pen" || event.pointerType === "mouse") {
       if (event.pointerId !== activePencilPointerId) {
         return;
       }

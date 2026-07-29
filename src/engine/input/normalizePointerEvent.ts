@@ -58,9 +58,11 @@ export function normalizePointerEvent(
     pointerId: event.pointerId,
     pointerType,
     phase: options.phase,
-    confirmed: confirmedEvents.map((sample) => toSample(sample, options)),
+    confirmed: confirmedEvents.map((sample) =>
+      toSample(sample, options, pointerType),
+    ),
     predicted: (event.getPredictedEvents?.() ?? []).map((sample) =>
-      toSample(sample, options),
+      toSample(sample, options, pointerType),
     ),
   };
 }
@@ -92,6 +94,7 @@ function normalizePointerType(pointerType: string): InputBatch["pointerType"] {
 function toSample(
   event: PointerEventLike,
   options: NormalizePointerEventOptions,
+  pointerType: InputBatch["pointerType"],
 ): PenSample {
   const point = transformPoint(options.inverseViewportMatrix, {
     x: event.clientX - options.surfaceBounds.left,
@@ -102,7 +105,10 @@ function toSample(
     x: point.x,
     y: point.y,
     pressure: clamp(
-      event.pressure ?? (options.phase === "down" ? 0.5 : 0),
+      pointerType === "mouse" &&
+        (event.pressure == null || event.pressure === 0)
+        ? 0.5
+        : (event.pressure ?? (options.phase === "down" ? 0.5 : 0)),
       0,
       1,
     ),

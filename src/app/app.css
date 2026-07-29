@@ -84,6 +84,30 @@ canvas:focus-visible {
   letter-spacing: -0.025em;
 }
 
+.editor-header__title-button,
+.editor-header__title-input {
+  max-width: 100%;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+}
+
+.editor-header__title-button {
+  overflow: hidden;
+  cursor: text;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-header__title-input {
+  width: min(360px, 56vw);
+  border-bottom: 1px solid var(--color-accent);
+  outline: none;
+}
+
 .gallery-header h1 {
   font-size: clamp(2.375rem, 3vw, 2.75rem);
   line-height: 1;

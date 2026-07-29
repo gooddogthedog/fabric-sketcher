@@ -544,6 +544,10 @@ export class BrowserProjectRepository implements ProjectRepository {
         await operations.add(durableOperation);
         await projects.put({
           ...project,
+          title:
+            durableOperation.type === "document.title-set"
+              ? durableOperation.title
+              : project.title,
           latestSequence: durableOperation.sequence,
           updatedAt: this.#now(),
         });
