@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2480 3508" role="img" aria-label="Professional fitting dress form, front view">
+  <symbol id="foundation-outline" viewBox="0 0 2480 3508" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse id="landmark-neck-cap" cx="1240" cy="410" rx="86" ry="20"/>
+    <ellipse id="landmark-neck-cap-top" cx="1240" cy="392" rx="32" ry="10"/>
+    <line id="landmark-cap-stem" x1="1240" y1="392" x2="1240" y2="380"/>
+    <ellipse id="landmark-cap-button" cx="1240" cy="372" rx="24" ry="12"/>
+    <path id="landmark-body-contour" d="M1154 410
+      C1151 448 1137 512 1104 566
+      C1034 614 950 646 856 692
+      C812 714 786 748 780 796
+      C773 849 811 887 865 902
+      C914 916 946 945 958 992
+      C976 1062 980 1136 985 1212
+      C989 1271 978 1336 958 1401
+      C935 1475 911 1553 895 1632
+      C883 1693 880 1769 892 1842
+      C901 1894 936 1928 986 1940
+      C1068 1959 1152 1968 1240 1968
+      C1328 1968 1412 1959 1494 1940
+      C1544 1928 1579 1894 1588 1842
+      C1600 1769 1597 1693 1585 1632
+      C1569 1553 1545 1475 1522 1401
+      C1502 1336 1491 1271 1495 1212
+      C1500 1136 1504 1062 1522 992
+      C1534 945 1566 916 1615 902
+      C1669 887 1707 849 1700 796
+      C1694 748 1668 714 1624 692
+      C1530 646 1446 614 1376 566
+      C1343 512 1329 448 1326 410"/>
+    <path id="landmark-neck-outline" d="M1154 410
+      C1177 434 1206 446 1240 446
+      C1274 446 1303 434 1326 410"/>
+    <path id="landmark-hip-termination" d="M892 1842
+      C1034 1880 1129 1894 1240 1894
+      C1351 1894 1446 1880 1588 1842"/>
+    <line id="landmark-support-pole-left" x1="1228" y1="1968" x2="1228" y2="2868"/>
+    <line id="landmark-support-pole-right" x1="1252" y1="1968" x2="1252" y2="2868"/>
+    <ellipse id="landmark-stand-collar" cx="1240" cy="1992" rx="70" ry="20"/>
+    <ellipse id="landmark-base-hub" cx="1240" cy="2880" rx="112" ry="34"/>
+    <path id="landmark-base" d="M1240 2908
+      C1100 2956 956 3028 816 3112
+      M1240 2908 C1380 2956 1524 3028 1664 3112
+      M1240 2908 L1240 3114"/>
+    <ellipse id="landmark-base-foot-left" cx="802" cy="3122" rx="42" ry="16"/>
+    <ellipse id="landmark-base-foot-right" cx="1678" cy="3122" rx="42" ry="16"/>
+    <ellipse id="landmark-base-foot-center" cx="1240" cy="3122" rx="42" ry="16"/>
+  </symbol>
+
+  <symbol id="foundation-center" viewBox="0 0 2480 3508" fill="none" stroke-linecap="round">
+    <line id="landmark-center-front" x1="1240" y1="446" x2="1240" y2="1948"/>
+  </symbol>
+
+  <symbol id="foundation-levels" viewBox="0 0 2480 3508" fill="none" stroke-linecap="round">
+    <polyline id="landmark-shoulder" points="842,702 1010,638 1130,586 1240,600 1350,586 1470,638 1638,702"/>
+    <line id="landmark-bust" x1="962" y1="1018" x2="1518" y2="1018"/>
+    <line id="landmark-waist" x1="985" y1="1312" x2="1495" y2="1312"/>
+    <line id="landmark-high-hip" x1="938" y1="1502" x2="1542" y2="1502"/>
+    <line id="landmark-hip" x1="900" y1="1700" x2="1580" y2="1700"/>
+  </symbol>
+
+  <symbol id="foundation-construction" viewBox="0 0 2480 3508" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path id="landmark-armhole" d="M1104 566
+      C1030 628 964 720 958 822
+      C956 891 974 949 1012 993
+      M1376 566 C1450 628 1516 720 1522 822
+      C1524 891 1506 949 1468 993"/>
+    <path id="landmark-princess-line" d="M1098 598
+      C1087 742 1090 882 1110 1018
+      C1128 1142 1121 1270 1095 1390
+      C1070 1504 1055 1645 1060 1888
+      M1382 598 C1393 742 1390 882 1370 1018
+      C1352 1142 1359 1270 1385 1390
+      C1410 1504 1425 1645 1420 1888"/>
+    <path id="landmark-side-seam" d="M958 992
+      C994 1090 1001 1200 985 1312
+      C966 1444 941 1580 930 1838
+      M1522 992 C1486 1090 1479 1200 1495 1312
+      C1514 1444 1539 1580 1550 1838"/>
+    <line id="landmark-shoulder-seam-left" x1="842" y1="702" x2="1104" y2="566"/>
+    <line id="landmark-shoulder-seam-right" x1="1638" y1="702" x2="1376" y2="566"/>
+    <ellipse id="landmark-neck-reference" cx="1240" cy="440" rx="116" ry="34"/>
+    <path id="landmark-cross-balance" d="M1012 1148
+      C1088 1128 1164 1120 1240 1120
+      C1316 1120 1392 1128 1468 1148
+      M962 1588 C1052 1564 1145 1552 1240 1552
+      C1335 1552 1428 1564 1518 1588"/>
+  </symbol>
+
+  <use href="#foundation-outline" stroke="#625E58" stroke-width="2.8" opacity="0.8"/>
+  <use href="#foundation-center" stroke="#8A4038" stroke-width="2.2" stroke-dasharray="18 14" opacity="0.64"/>
+  <use href="#foundation-levels" stroke="#625E58" stroke-width="2" stroke-dasharray="14 12" opacity="0.5"/>
+  <use href="#foundation-construction" stroke="#625E58" stroke-width="1.8" stroke-dasharray="10 12" opacity="0.54"/>
+</svg>
