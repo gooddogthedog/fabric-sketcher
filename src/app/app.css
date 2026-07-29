@@ -1077,6 +1077,7 @@ canvas:focus-visible {
 
 .brush-shelf__controls {
   display: grid;
+  min-inline-size: 0;
   gap: 12px;
   padding: 16px;
   border-block-start: 1px solid var(--color-line);
@@ -1084,8 +1085,9 @@ canvas:focus-visible {
 
 .brush-shelf__range {
   display: grid;
-  gap: 6px;
-  min-block-size: 56px;
+  min-inline-size: 0;
+  min-block-size: 88px;
+  gap: 8px;
 }
 
 .brush-shelf__range > span {
@@ -1096,16 +1098,21 @@ canvas:focus-visible {
 }
 
 .brush-shelf__range input[type="range"] {
-  accent-color: var(--color-accent);
-  min-block-size: 32px;
   inline-size: 100%;
+  min-inline-size: 56px;
+  min-block-size: 56px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
 }
 
 .brush-shelf__color {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-inline-size: 0;
   min-block-size: 56px;
   color: var(--color-muted);
   font-size: 0.875rem;
@@ -1120,9 +1127,13 @@ canvas:focus-visible {
   background: none;
 }
 
+/* Five 56px swatches exceed the panel's content box, so they wrap in place
+   rather than forcing the controls block wider than the panel. */
 .brush-shelf__recents {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
   gap: 8px;
+  min-inline-size: 0;
 }
 
 .brush-shelf__recent {
