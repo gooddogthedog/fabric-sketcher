@@ -420,11 +420,37 @@ describe("DrawingSurface", () => {
     await waitFor(() =>
       expect(repository.appendOperation).toHaveBeenCalledTimes(1),
     );
+    const committed = vi.mocked(repository.appendOperation).mock.calls[0]?.[0];
+    expect(
+      committed?.type === "stroke.committed"
+        ? committed.samples.map((sample) => sample.time)
+        : [],
+    ).toEqual([100, 110, 120]);
     expect(renderer.clearPreview).toHaveBeenCalled();
     expect(renderer.commitStroke).toHaveBeenCalledTimes(1);
     expect(view.surface.setPointerCapture).toHaveBeenCalledWith(7);
     expect(view.surface.releasePointerCapture).toHaveBeenCalledWith(7);
     expect(store.getSnapshot().document?.strokes).toHaveLength(1);
+  });
+
+  it("keeps the drawing controller and viewport intact while the shelf is reopened", async () => {
+    const user = userEvent.setup();
+    const store = await openStore(projectRepository());
+    const renderer = mockRenderer();
+    const viewport = mockViewport();
+    const view = renderSurface(store, renderer, viewport);
+    const initialSurface = view.surface;
+    const initialResets = viewport.reset.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "Brushes" }));
+    await user.click(screen.getByRole("radio", { name: "Denim" }));
+    await user.click(screen.getByRole("button", { name: "Close brushes" }));
+    await user.click(screen.getByRole("button", { name: "Brushes" }));
+
+    expect(store.getSnapshot().brush.id).toBe("denim-v1");
+    expect(view.rendererFactory).toHaveBeenCalledTimes(1);
+    expect(view.surface).toBe(initialSurface);
+    expect(viewport.reset).toHaveBeenCalledTimes(initialResets);
   });
 
   it("routes touch contacts only to the viewport controller", async () => {
