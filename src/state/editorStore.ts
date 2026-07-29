@@ -3,10 +3,13 @@ import { DEFAULT_BRUSH_ID, getBrushPreset } from "../engine/brush/presets";
 import type { Renderer, RenderStroke } from "../engine/render/Renderer";
 import { createDocument } from "../domain/document/createDocument";
 import { documentReducer } from "../domain/document/documentReducer";
+import { immutableFoundation } from "../domain/document/foundationState";
 import type {
   BrushSnapshot,
   DesignDocument,
   DocumentOperation,
+  FoundationSetOperation,
+  FoundationState,
   PenSample,
   StrokeOperation,
   StrokeVisibilityOperation,
@@ -164,6 +167,24 @@ export class EditorStore {
     const nextDocument = documentReducer(document, operation);
     this.#renderer?.commitStroke(toRenderStroke(operation));
     return this.#queueOperation(operation, nextDocument, startedAt);
+  }
+
+  public setFoundation(foundation: FoundationState | null): Promise<void> {
+    const startedAt = this.#performance.now();
+    const document = this.#requireDocument();
+    const operation: FoundationSetOperation = Object.freeze({
+      type: "foundation.set",
+      operationId: this.#createId(),
+      projectId: document.projectId,
+      sequence: document.operationSequence + 1,
+      committedAt: this.#now(),
+      foundation: immutableFoundation(foundation),
+    });
+    return this.#queueOperation(
+      operation,
+      documentReducer(document, operation),
+      startedAt,
+    );
   }
 
   public undoLastStroke(): Promise<void> {
@@ -351,7 +372,7 @@ export class EditorStore {
     const duration = this.#performance.now() - startedAt;
     if (duration > DURABILITY_BUDGET_MS) {
       try {
-        this.#performance.measure("stroke-durability", {
+        this.#performance.measure("operation-durability", {
           start: startedAt,
           duration,
         });

@@ -4,6 +4,8 @@ import { documentReducer } from "../domain/document/documentReducer";
 import type {
   DesignDocument,
   DocumentOperation,
+  FoundationLandmarkGroup,
+  FoundationState,
   PenSample,
   StrokeOperation,
 } from "../domain/document/types";
@@ -39,6 +41,18 @@ const samples: readonly PenSample[] = [
     time: 110,
   },
 ];
+
+const figure: FoundationState = {
+  assetId: "neutral-figure-front",
+  assetVersion: 1,
+  foundationType: "figure",
+  transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  opacity: 0.34,
+  visible: true,
+  visibleLandmarkGroups: ["outline"],
+  locked: true,
+  includeInExport: false,
+};
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -309,6 +323,92 @@ describe("EditorStore", () => {
 
     expect(store.getSnapshot().saveStatus).toBe("saved");
     expect(statuses).toEqual(expect.arrayContaining(["saving", "saved"]));
+  });
+
+  it("updates the visible foundation immediately and appends it once", async () => {
+    const append = deferred<void>();
+    const projectRepository = repository({
+      appendOperation: vi.fn(() => append.promise),
+    });
+    const activeRenderer = renderer();
+    const store = createEditorStore({
+      repository: projectRepository,
+      renderer: activeRenderer,
+      createId: () => "foundation-1",
+      now: () => "2026-07-21T12:00:00.000Z",
+    });
+    await store.openProject("project-1");
+
+    const saving = store.setFoundation(figure);
+
+    expect(store.getSnapshot()).toMatchObject({
+      saveStatus: "saving",
+      document: { foundation: figure },
+    });
+    expect(projectRepository.appendOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "foundation.set",
+        sequence: 1,
+        foundation: figure,
+      }),
+    );
+    expect(activeRenderer.commitStroke).not.toHaveBeenCalled();
+    expect(activeRenderer.replaceDocument).toHaveBeenCalledTimes(1);
+
+    append.resolve();
+    await saving;
+
+    expect(store.getSnapshot().saveStatus).toBe("saved");
+    expect(projectRepository.appendOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries the same immutable foundation operation after failure", async () => {
+    const projectRepository = repository({
+      appendOperation: vi
+        .fn<(operation: DocumentOperation) => Promise<void>>()
+        .mockRejectedValueOnce(new Error("disk full"))
+        .mockResolvedValueOnce(undefined),
+    });
+    const callerFoundation = {
+      ...figure,
+      transform: [1, 0, 12, 0, 1, 24, 0, 0, 1] as [
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+      ],
+      visibleLandmarkGroups: ["outline"] as FoundationLandmarkGroup[],
+    };
+    const store = createEditorStore({
+      repository: projectRepository,
+      createId: () => "foundation-1",
+      now: () => "2026-07-21T12:00:00.000Z",
+    });
+    await store.openProject("project-1");
+
+    await store.setFoundation(callerFoundation);
+    callerFoundation.transform[2] = 999;
+    callerFoundation.visibleLandmarkGroups.push("center");
+    await store.retrySave();
+
+    const calls = vi.mocked(projectRepository.appendOperation).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[0]).toBe(calls[1]?.[0]);
+    expect(calls[0]?.[0]).toMatchObject({
+      foundation: {
+        transform: [1, 0, 12, 0, 1, 24, 0, 0, 1],
+        visibleLandmarkGroups: ["outline"],
+      },
+    });
+    expect(store.getSnapshot().document?.foundation).toMatchObject({
+      transform: [1, 0, 12, 0, 1, 24, 0, 0, 1],
+      visibleLandmarkGroups: ["outline"],
+    });
   });
 
   it("keeps failed art in memory and retries the same operation without rerendering", async () => {
@@ -588,7 +688,7 @@ describe("EditorStore", () => {
 
     await store.commitStroke(samples);
 
-    expect(measure).toHaveBeenCalledWith("stroke-durability", {
+    expect(measure).toHaveBeenCalledWith("operation-durability", {
       start: 100,
       duration: 251,
     });
