@@ -80,7 +80,10 @@ export class StrokeSession {
   }
 
   private start(batch: InputBatch): void {
-    if (batch.phase !== "down" || batch.pointerType !== "pen") {
+    if (
+      batch.phase !== "down" ||
+      (batch.pointerType !== "pen" && batch.pointerType !== "mouse")
+    ) {
       return;
     }
 

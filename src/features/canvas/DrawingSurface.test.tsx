@@ -183,10 +183,11 @@ function sample(
   clientY: number,
   timeStamp: number,
   pressure = 0.5,
+  pointerType: "mouse" | "pen" = "pen",
 ) {
   return {
     pointerId: 7,
-    pointerType: "pen",
+    pointerType,
     clientX,
     clientY,
     pressure,
@@ -995,6 +996,36 @@ describe("DrawingSurface", () => {
     ]);
     expect(renderer.previewStroke).not.toHaveBeenCalled();
     expect(viewport.onPointerDown).not.toHaveBeenCalled();
+  });
+
+  it("commits a mouse stroke with stable fallback pressure", async () => {
+    const repository = projectRepository();
+    const store = await openStore(repository);
+    const view = renderSurface(store, mockRenderer(), mockViewport());
+
+    fireEvent(
+      view.surface,
+      pointerEvent("pointerdown", sample(10, 20, 100, 0, "mouse")),
+    );
+    fireEvent(
+      view.surface,
+      pointerEvent("pointermove", sample(30, 40, 110, 0, "mouse")),
+    );
+    fireEvent(
+      view.surface,
+      pointerEvent("pointerup", sample(50, 60, 120, 0, "mouse")),
+    );
+
+    await waitFor(() =>
+      expect(repository.appendOperation).toHaveBeenCalledTimes(1),
+    );
+    const operation = repository.appendOperation.mock.calls[0]?.[0];
+    expect(operation?.type).toBe("stroke.committed");
+    if (operation?.type === "stroke.committed") {
+      expect(operation.samples.map((entry) => entry.pressure)).toEqual([
+        0.5, 0.5, 0.5,
+      ]);
+    }
   });
 
   it("leaves locked foundation Pencil and touch contacts to the canvas", async () => {

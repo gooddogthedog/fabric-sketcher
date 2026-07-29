@@ -138,6 +138,9 @@ export function normalizeDocumentOperation(value: unknown): DocumentOperation {
       throw new DocumentOperationValidationError();
     }
   }
+  if (isDocumentTitleSetOperation(value)) {
+    return value;
+  }
   throw new DocumentOperationValidationError();
 }
 
@@ -268,6 +271,18 @@ function isFoundationSetOperation(value: unknown): value is OperationMetadata &
     isOperationMetadata(value) &&
     value.type === "foundation.set" &&
     (value.foundation === null || isRecord(value.foundation))
+  );
+}
+
+function isDocumentTitleSetOperation(
+  value: unknown,
+): value is DocumentOperation {
+  return (
+    isOperationMetadata(value) &&
+    value.type === "document.title-set" &&
+    typeof value.title === "string" &&
+    value.title.trim().length > 0 &&
+    value.title.length <= 80
   );
 }
 

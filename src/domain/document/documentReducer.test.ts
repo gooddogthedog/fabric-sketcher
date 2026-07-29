@@ -114,6 +114,23 @@ const visibility = (
 });
 
 describe("documentReducer", () => {
+  it("applies a durable document rename", () => {
+    const renamed = documentReducer(
+      createDocument({ projectId: "project-123", title: "Untitled Design" }),
+      {
+        type: "document.title-set",
+        operationId: "rename-1",
+        projectId: "project-123",
+        sequence: 1,
+        committedAt: "2026-07-29T12:00:00.000Z",
+        title: "Linen Wrap Study",
+      },
+    );
+
+    expect(renamed.title).toBe("Linen Wrap Study");
+    expect(renamed.operationSequence).toBe(1);
+  });
+
   it("applies and replaces a complete foundation snapshot", () => {
     const document = createDocument({
       projectId: "project-123",

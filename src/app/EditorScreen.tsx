@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { DesignDocument } from "../domain/document/types";
 import type { RendererSelection } from "../engine/render/createRenderer";
 import { DrawingSurface } from "../features/canvas/DrawingSurface";
@@ -18,6 +19,23 @@ export function EditorScreen({
   store,
   rendererFactory,
 }: EditorScreenProps) {
+  const [renaming, setRenaming] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(document.title);
+
+  useEffect(() => {
+    if (!renaming) {
+      setDraftTitle(document.title);
+    }
+  }, [document.title, renaming]);
+
+  const commitTitle = () => {
+    const nextTitle = draftTitle.trim();
+    setRenaming(false);
+    if (nextTitle) {
+      void store.renameProject(nextTitle);
+    }
+  };
+
   return (
     <main className="editor-shell">
       <header className="editor-header">
@@ -30,7 +48,37 @@ export function EditorScreen({
           <BackIcon />
         </button>
         <div className="editor-header__identity">
-          <h1>{document.title}</h1>
+          {renaming ? (
+            <input
+              aria-label="Design name"
+              autoFocus
+              className="editor-header__title-input"
+              maxLength={80}
+              onBlur={commitTitle}
+              onChange={(event) => setDraftTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+                if (event.key === "Escape") {
+                  setDraftTitle(document.title);
+                  setRenaming(false);
+                }
+              }}
+              value={draftTitle}
+            />
+          ) : (
+            <h1>
+              <button
+                aria-label="Rename design"
+                className="editor-header__title-button"
+                onClick={() => setRenaming(true)}
+                type="button"
+              >
+                {document.title}
+              </button>
+            </h1>
+          )}
           <SaveStatus error={saveError} status={saveStatus} store={store} />
         </div>
         <span aria-hidden="true" className="editor-header__balance" />

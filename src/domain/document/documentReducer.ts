@@ -59,6 +59,14 @@ export function documentReducer(
     };
   }
 
+  if (operation.type === "document.title-set") {
+    return {
+      ...document,
+      operationSequence: operation.sequence,
+      title: operation.title,
+    };
+  }
+
   if (operation.type === "stroke.visibility-set") {
     const targetExists = document.strokes.some(
       (stroke) => stroke.operationId === operation.targetOperationId,

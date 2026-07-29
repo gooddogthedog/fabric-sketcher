@@ -92,8 +92,20 @@ export type FoundationSetOperation = Readonly<{
   foundation: FoundationState | null;
 }>;
 
+export type DocumentTitleSetOperation = Readonly<{
+  type: "document.title-set";
+  operationId: string;
+  projectId: string;
+  sequence: number;
+  committedAt: string;
+  title: string;
+}>;
+
 export type DocumentOperation =
-  StrokeOperation | StrokeVisibilityOperation | FoundationSetOperation;
+  | StrokeOperation
+  | StrokeVisibilityOperation
+  | FoundationSetOperation
+  | DocumentTitleSetOperation;
 
 export type DesignDocument = Readonly<{
   schemaVersion: 2;

@@ -10,6 +10,7 @@ import type {
   DocumentOperation,
   FoundationSetOperation,
   FoundationState,
+  DocumentTitleSetOperation,
   PenSample,
   StrokeOperation,
   StrokeVisibilityOperation,
@@ -179,6 +180,28 @@ export class EditorStore {
       sequence: document.operationSequence + 1,
       committedAt: this.#now(),
       foundation: immutableFoundation(foundation),
+    });
+    return this.#queueOperation(
+      operation,
+      documentReducer(document, operation),
+      startedAt,
+    );
+  }
+
+  public renameProject(title: string): Promise<void> {
+    const nextTitle = title.trim();
+    const document = this.#requireDocument();
+    if (!nextTitle || nextTitle === document.title) {
+      return Promise.resolve();
+    }
+    const startedAt = this.#performance.now();
+    const operation: DocumentTitleSetOperation = Object.freeze({
+      type: "document.title-set",
+      operationId: this.#createId(),
+      projectId: document.projectId,
+      sequence: document.operationSequence + 1,
+      committedAt: this.#now(),
+      title: nextTitle,
     });
     return this.#queueOperation(
       operation,

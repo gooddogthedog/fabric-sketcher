@@ -214,6 +214,36 @@ describe("App", () => {
     ).toHaveFocus();
   });
 
+  it("renames a design from the editor header", async () => {
+    const projectRepository = repository();
+    const store = createEditorStore({ repository: projectRepository });
+    const user = userEvent.setup();
+    render(<App rendererFactory={rendererFactory()} store={store} />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Recent design")).toBeVisible(),
+    );
+    await user.click(screen.getByRole("button", { name: /Recent design/ }));
+    await user.click(screen.getByRole("button", { name: "Rename design" }));
+
+    const title = screen.getByRole("textbox", { name: "Design name" });
+    await user.clear(title);
+    await user.type(title, "Linen Wrap Study");
+    await user.keyboard("{Enter}");
+
+    expect(
+      await screen.findByRole("heading", { name: "Linen Wrap Study" }),
+    ).toBeVisible();
+    await waitFor(() =>
+      expect(projectRepository.appendOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "document.title-set",
+          title: "Linen Wrap Study",
+        }),
+      ),
+    );
+  });
+
   it("opens recovered artwork when its pinned Foundation asset is unavailable", async () => {
     const initial = createDocument({
       projectId: "recent",

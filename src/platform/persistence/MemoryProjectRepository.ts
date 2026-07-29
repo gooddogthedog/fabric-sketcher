@@ -173,7 +173,14 @@ export class MemoryProjectRepository implements ProjectRepository {
         durableOperation,
       );
       record.operations.push(durableOperation);
-      record.summary = { ...record.summary, updatedAt: this.#now() };
+      record.summary = {
+        ...record.summary,
+        title:
+          durableOperation.type === "document.title-set"
+            ? durableOperation.title
+            : record.summary.title,
+        updatedAt: this.#now(),
+      };
     });
   }
 
