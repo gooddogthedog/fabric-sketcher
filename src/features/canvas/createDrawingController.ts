@@ -15,7 +15,6 @@ import {
   type PointerContact,
   type SafeAreaInsets,
 } from "../../engine/viewport/ViewportController";
-import { studioPencil } from "../../state/editorStore";
 
 export interface DrawingViewport {
   getMatrix(): Matrix3;
@@ -51,9 +50,9 @@ export type CreateDrawingControllerOptions = Readonly<{
   document: DesignDocument;
   commitStroke: (
     samples: readonly PenSample[],
-    brush?: BrushSnapshot,
+    brush: BrushSnapshot,
   ) => void | PromiseLike<void>;
-  getActiveBrush?: () => BrushSnapshot;
+  getBrush: () => BrushSnapshot;
   viewportFactory?: DrawingViewportFactory;
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (frameId: number) => void;
@@ -83,6 +82,7 @@ export function createDrawingController(
   const getDevicePixelRatio =
     options.getDevicePixelRatio ?? (() => globalThis.devicePixelRatio || 1);
   let activePencilContact: Point2D | null = null;
+  let activePencilPointerId: number | null = null;
   let pencilDownBrush: BrushSnapshot | null = null;
   let renderFrame: number | null = null;
   let disposed = false;
@@ -103,34 +103,25 @@ export function createDrawingController(
     });
   };
 
-  const activeBrush = (): BrushSnapshot =>
-    options.getActiveBrush?.() ?? studioPencil;
-
   const strokeSession = new StrokeSession({
     onPreview: (confirmed, predicted) => {
       if (confirmed.length === 0 && predicted.length === 0) {
         renderer.clearPreview();
       } else {
-        renderer.previewStroke(
-          previewStroke(
-            "preview-confirmed",
-            confirmed,
-            pencilDownBrush ?? activeBrush(),
-          ),
-          previewStroke(
-            "preview-predicted",
-            predicted,
-            pencilDownBrush ?? activeBrush(),
-          ),
-        );
+        if (pencilDownBrush) {
+          renderer.previewStroke(
+            previewStroke("preview-confirmed", confirmed, pencilDownBrush),
+            previewStroke("preview-predicted", predicted, pencilDownBrush),
+          );
+        }
       }
       scheduleRender();
     },
     onCommit: (samples) => {
-      const result = options.commitStroke(
-        samples,
-        pencilDownBrush ?? activeBrush(),
-      );
+      if (!pencilDownBrush) {
+        return;
+      }
+      const result = options.commitStroke(samples, pencilDownBrush);
       scheduleRender();
       return result;
     },
@@ -147,8 +138,12 @@ export function createDrawingController(
     if (event.pointerType !== "pen") {
       return;
     }
+    if (activePencilPointerId !== null) {
+      return;
+    }
     event.preventDefault();
-    pencilDownBrush = activeBrush();
+    activePencilPointerId = event.pointerId;
+    pencilDownBrush = immutableBrush(options.getBrush());
     activePencilContact = toLocalPoint(event, surface);
     capturePointer(surface, event.pointerId);
     strokeSession.handle(toInputBatch(event, "down", surface, viewport));
@@ -161,6 +156,9 @@ export function createDrawingController(
       return;
     }
     if (event.pointerType !== "pen") {
+      return;
+    }
+    if (event.pointerId !== activePencilPointerId) {
       return;
     }
     event.preventDefault();
@@ -178,10 +176,14 @@ export function createDrawingController(
     if (event.pointerType !== "pen") {
       return;
     }
+    if (event.pointerId !== activePencilPointerId) {
+      return;
+    }
     event.preventDefault();
     activePencilContact = toLocalPoint(event, surface);
     strokeSession.handle(toInputBatch(event, "up", surface, viewport));
     activePencilContact = null;
+    activePencilPointerId = null;
     pencilDownBrush = null;
     releasePointer(surface, event.pointerId);
   };
@@ -196,9 +198,13 @@ export function createDrawingController(
     if (event.pointerType !== "pen") {
       return;
     }
+    if (event.pointerId !== activePencilPointerId) {
+      return;
+    }
     event.preventDefault();
     strokeSession.handle(toInputBatch(event, "cancel", surface, viewport));
     activePencilContact = null;
+    activePencilPointerId = null;
     pencilDownBrush = null;
     releasePointer(surface, event.pointerId);
   };
@@ -207,8 +213,13 @@ export function createDrawingController(
     if (event.pointerType === "touch") {
       viewport.onPointerCancel(toContact(event, surface));
     } else if (event.pointerType === "pen") {
+      if (event.pointerId !== activePencilPointerId) {
+        return;
+      }
       strokeSession.lostPointerCapture(event.pointerId);
       activePencilContact = null;
+      activePencilPointerId = null;
+      pencilDownBrush = null;
     }
   };
 
@@ -340,6 +351,13 @@ function previewStroke(
     color: hexColor(brush.color),
     texture: Object.freeze({ ...brush.texture }),
   };
+}
+
+function immutableBrush(brush: BrushSnapshot): BrushSnapshot {
+  return Object.freeze({
+    ...brush,
+    texture: Object.freeze({ ...brush.texture }),
+  });
 }
 
 function hexColor(color: `#${string}`): readonly [number, number, number, 1] {

@@ -5,6 +5,7 @@ import {
   type RendererSelection,
 } from "../../engine/render/createRenderer";
 import type { EditorStore } from "../../state/editorStore";
+import { BrushShelf } from "../brushes/BrushShelf";
 import {
   createDrawingController,
   type DrawingViewportFactory,
@@ -59,7 +60,7 @@ export function DrawingSurface({
         height,
       },
       commitStroke: store.commitStroke.bind(store),
-      getActiveBrush: store.getActiveBrush,
+      getBrush: store.getActiveBrush,
       viewportFactory,
     });
     const detachRenderer = store.attachRenderer(
@@ -95,6 +96,7 @@ export function DrawingSurface({
   return (
     <section className="drawing-surface" aria-label="Design workspace">
       <div className="drawing-surface__field">
+        <BrushShelf store={store} />
         <div className="drawing-surface__paper" ref={mountRef} />
       </div>
       <div className="drawing-surface__actions">
