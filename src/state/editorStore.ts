@@ -1,3 +1,10 @@
+import {
+  addRecentColor,
+  resetBrushToPreset,
+  setBrushColor,
+  setBrushOpacity,
+  setBrushSize,
+} from "../engine/brush/brushEdits";
 import { buildStrokeMesh } from "../engine/brush/buildStrokeMesh";
 import { DEFAULT_BRUSH_ID, getBrushPreset } from "../engine/brush/presets";
 import type { Renderer, RenderStroke } from "../engine/render/Renderer";
@@ -10,6 +17,7 @@ import type {
   DocumentOperation,
   FoundationSetOperation,
   FoundationState,
+  HexColor,
   DocumentTitleSetOperation,
   PenSample,
   StrokeOperation,
@@ -30,6 +38,7 @@ export type EditorSnapshot = Readonly<{
   saveError: string | null;
   navigationBusy: boolean;
   brush: BrushSnapshot;
+  recentColors: readonly HexColor[];
 }>;
 
 export type EditorPerformance = Readonly<{
@@ -69,6 +78,7 @@ export class EditorStore {
   readonly #performance: EditorPerformance;
   readonly #confirmClose: () => boolean | Promise<boolean>;
   #brush: BrushSnapshot;
+  #recentColors: readonly HexColor[] = Object.freeze([] as HexColor[]);
   readonly #listeners = new Set<() => void>();
   readonly #pendingWrites = new Map<string, Map<string, PendingWrite>>();
   readonly #retryWaves = new Map<string, Promise<void>>();
@@ -84,6 +94,7 @@ export class EditorStore {
     saveError: null,
     navigationBusy: false,
     brush: studioPencil,
+    recentColors: Object.freeze([] as HexColor[]),
   });
 
   public constructor(options: EditorStoreOptions) {
@@ -104,6 +115,30 @@ export class EditorStore {
   public selectBrush(id: BrushSnapshot["id"]): void {
     this.#brush = getBrushPreset(id);
     this.#update({ brush: this.#brush });
+  }
+
+  public setBrushSize(size: number): void {
+    this.#applyBrush(setBrushSize(this.#brush, size));
+  }
+
+  public setBrushOpacity(opacity: number): void {
+    this.#applyBrush(setBrushOpacity(this.#brush, opacity));
+  }
+
+  public setBrushColor(color: HexColor): void {
+    const brush = setBrushColor(this.#brush, color);
+    this.#recentColors = addRecentColor(this.#recentColors, brush.color);
+    this.#brush = brush;
+    this.#update({ brush, recentColors: this.#recentColors });
+  }
+
+  public resetBrush(): void {
+    this.#applyBrush(resetBrushToPreset(this.#brush));
+  }
+
+  #applyBrush(brush: BrushSnapshot): void {
+    this.#brush = brush;
+    this.#update({ brush });
   }
 
   public subscribe = (listener: () => void): (() => void) => {

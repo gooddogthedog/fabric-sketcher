@@ -1,13 +1,22 @@
-import type { BrushSnapshot, PenSample } from "../../domain/document/types";
+import type { PenSample } from "../../domain/document/types";
 
 /** Each vertex is stored as three consecutive floats in `(x, y, alpha)` order. */
 export const STROKE_VERTEX_STRIDE = 3;
 
 export type StrokeVertex = Readonly<{ x: number; y: number; alpha: number }>;
 
+/** The only brush fields stroke geometry depends on. */
+export type StrokeGeometry = Readonly<{
+  size: number;
+  opacity: number;
+  pressureSize: number;
+  pressureOpacity: number;
+  tiltShape: number;
+}>;
+
 export function buildStrokeMesh(
   samples: readonly PenSample[],
-  brush: BrushSnapshot,
+  brush: StrokeGeometry,
 ): Float32Array {
   if (samples.length < 2) {
     return new Float32Array();
