@@ -9,7 +9,11 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDocument } from "../../domain/document/createDocument";
-import type { DocumentOperation } from "../../domain/document/types";
+import type {
+  BrushSnapshot,
+  DocumentOperation,
+} from "../../domain/document/types";
+import { getBrushPreset } from "../../engine/brush/presets";
 import type { Renderer } from "../../engine/render/Renderer";
 import type { RendererSelection } from "../../engine/render/createRenderer";
 import {
@@ -256,6 +260,92 @@ function renderSurface(
 }
 
 describe("DrawingSurface", () => {
+  it("uses the brush selected after controller creation for preview and commit", () => {
+    const surface = document.createElement("canvas");
+    surface.setPointerCapture = vi.fn();
+    surface.releasePointerCapture = vi.fn();
+    const renderer = mockRenderer();
+    const committed: BrushSnapshot[] = [];
+    let selectedBrush = getBrushPreset("studio-pencil-v1");
+
+    const controller = createDrawingController({
+      surface,
+      renderer,
+      document: createDocument({ projectId: "project-1", title: "Brush test" }),
+      commitStroke: (_samples, brush) => {
+        committed.push(brush);
+      },
+      getBrush: () => selectedBrush,
+      viewportFactory: () => mockViewport(),
+    });
+    selectedBrush = getBrushPreset("denim-v1");
+
+    surface.dispatchEvent(pointerEvent("pointerdown", sample(10, 20, 100)));
+    surface.dispatchEvent(pointerEvent("pointermove", sample(30, 40, 110)));
+
+    const preview = vi.mocked(renderer.previewStroke).mock.lastCall?.[0];
+    expect(preview?.color).toEqual([41 / 255, 79 / 255, 104 / 255, 1]);
+    expect(preview?.texture.kind).toBe("denim");
+    expect(preview?.mesh).toHaveLength(12);
+    expect(preview?.mesh[2]).toBeCloseTo(0.6364, 4);
+
+    surface.dispatchEvent(pointerEvent("pointerup", sample(40, 50, 120)));
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.id).toBe("denim-v1");
+    controller.dispose();
+  });
+
+  it("keeps each Pencil contact on its immutable down brush when selection changes", () => {
+    const surface = document.createElement("canvas");
+    surface.setPointerCapture = vi.fn();
+    surface.releasePointerCapture = vi.fn();
+    const renderer = mockRenderer();
+    const committed: BrushSnapshot[] = [];
+    const denim = {
+      ...getBrushPreset("denim-v1"),
+      texture: { ...getBrushPreset("denim-v1").texture },
+    } as BrushSnapshot;
+    let selectedBrush: BrushSnapshot = denim;
+
+    const controller = createDrawingController({
+      surface,
+      renderer,
+      document: createDocument({ projectId: "project-1", title: "Brush test" }),
+      commitStroke: (_samples, brush) => {
+        committed.push(brush);
+      },
+      getBrush: () => selectedBrush,
+      viewportFactory: () => mockViewport(),
+    });
+
+    surface.dispatchEvent(pointerEvent("pointerdown", sample(10, 20, 100)));
+    selectedBrush = getBrushPreset("silk-v1");
+    (denim as { color: BrushSnapshot["color"] }).color = "#000000";
+    (denim.texture as { strength: number }).strength = 0;
+    surface.dispatchEvent(pointerEvent("pointermove", sample(30, 40, 110)));
+
+    const firstPreview = vi.mocked(renderer.previewStroke).mock.lastCall?.[0];
+    expect(firstPreview?.color).toEqual([41 / 255, 79 / 255, 104 / 255, 1]);
+    expect(firstPreview?.texture).toMatchObject({
+      kind: "denim",
+      strength: 0.62,
+    });
+    surface.dispatchEvent(pointerEvent("pointerup", sample(40, 50, 120)));
+    expect(committed[0]?.id).toBe("denim-v1");
+    expect(committed[0]?.color).toBe("#294F68");
+    expect(Object.isFrozen(committed[0])).toBe(true);
+    expect(Object.isFrozen(committed[0]?.texture)).toBe(true);
+
+    surface.dispatchEvent(pointerEvent("pointerdown", sample(50, 60, 130)));
+    surface.dispatchEvent(pointerEvent("pointermove", sample(70, 80, 140)));
+    const secondPreview = vi.mocked(renderer.previewStroke).mock.lastCall?.[0];
+    expect(secondPreview?.color).toEqual([143 / 255, 62 / 255, 75 / 255, 1]);
+    expect(secondPreview?.texture.kind).toBe("silk");
+    surface.dispatchEvent(pointerEvent("pointerup", sample(80, 90, 150)));
+    expect(committed[1]?.id).toBe("silk-v1");
+    controller.dispose();
+  });
+
   it("renders confirmed and predicted Pencil previews, then commits once on lift", async () => {
     const repository = projectRepository();
     const store = await openStore(repository);
@@ -395,6 +485,7 @@ describe("DrawingSurface", () => {
         title: "Offset pinch",
       }),
       commitStroke: vi.fn(),
+      getBrush: () => getBrushPreset("studio-pencil-v1"),
       requestFrame: (callback) => {
         const id = ++nextFrame;
         frames.set(id, callback);
