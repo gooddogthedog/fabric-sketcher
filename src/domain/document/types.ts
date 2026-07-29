@@ -2,6 +2,8 @@ import type { Matrix3 } from "../../engine/math/affine";
 
 export type Point = Readonly<{ x: number; y: number }>;
 
+export type HexColor = `#${string}`;
+
 export type FoundationType = "figure" | "dress-form";
 
 export type FoundationLandmarkGroup =
@@ -53,7 +55,7 @@ export type BrushTextureSnapshot = Readonly<{
 
 export type BrushSnapshot = Readonly<{
   id: BrushPresetId;
-  color: `#${string}`;
+  color: HexColor;
   opacity: number;
   size: number;
   pressureSize: number;

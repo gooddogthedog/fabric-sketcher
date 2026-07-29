@@ -724,4 +724,55 @@ describe("EditorStore", () => {
 
     expect(store.getSnapshot().saveStatus).toBe("saved");
   });
+
+  it("edits the active brush and records recent colors", () => {
+    const store = createEditorStore({ repository: repository() });
+
+    store.selectBrush("silk-v1");
+    store.setBrushSize(72);
+    store.setBrushOpacity(0.25);
+    store.setBrushColor("#2E4A3C");
+
+    const brush = store.getActiveBrush();
+    expect(brush.id).toBe("silk-v1");
+    expect(brush.size).toBe(72);
+    expect(brush.opacity).toBe(0.25);
+    expect(brush.color).toBe("#2e4a3c");
+    expect(brush.texture).toEqual(getBrushPreset("silk-v1").texture);
+    expect(store.getSnapshot().recentColors).toEqual(["#2e4a3c"]);
+  });
+
+  it("resets the active brush to its preset defaults without clearing recents", () => {
+    const store = createEditorStore({ repository: repository() });
+
+    store.selectBrush("wool-v1");
+    store.setBrushColor("#2E4A3C");
+    store.setBrushSize(200);
+    store.resetBrush();
+
+    expect(store.getActiveBrush()).toEqual(getBrushPreset("wool-v1"));
+    expect(store.getSnapshot().recentColors).toEqual(["#2e4a3c"]);
+  });
+
+  it("commits a stroke with the edited brush, not the bare preset", async () => {
+    const operations: DocumentOperation[] = [];
+    const store = createEditorStore({
+      repository: repository({
+        appendOperation: vi.fn(async (operation) => {
+          operations.push(operation);
+        }),
+      }),
+      createId: () => "stroke-1",
+    });
+    await store.openProject("project-1");
+
+    store.selectBrush("denim-v1");
+    store.setBrushSize(90);
+    await store.commitStroke(samples);
+
+    expect(operations[0]).toMatchObject({
+      type: "stroke.committed",
+      brush: { id: "denim-v1", size: 90 },
+    });
+  });
 });
