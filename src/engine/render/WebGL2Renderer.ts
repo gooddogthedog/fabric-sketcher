@@ -1,6 +1,7 @@
 import { identity, type Matrix3 } from "../math/affine";
 import type { Renderer, RenderStroke } from "./Renderer";
 import { STROKE_FRAGMENT_SHADER, STROKE_VERTEX_SHADER } from "./shaders";
+import { textureUniforms } from "./textureUniforms";
 
 export type WebGLRendererStatus = Readonly<{
   type: "context-lost" | "context-restored" | "context-restore-failed";
@@ -18,6 +19,11 @@ type ProgramState = Readonly<{
   viewportLocation: WebGLUniformLocation;
   resolutionLocation: WebGLUniformLocation;
   colorLocation: WebGLUniformLocation;
+  textureKindLocation: WebGLUniformLocation;
+  textureScaleLocation: WebGLUniformLocation;
+  textureStrengthLocation: WebGLUniformLocation;
+  textureAngleLocation: WebGLUniformLocation;
+  textureScatterLocation: WebGLUniformLocation;
 }>;
 
 const VERTEX_STRIDE = 3;
@@ -317,6 +323,32 @@ export class WebGL2Renderer implements Renderer {
       2 * Float32Array.BYTES_PER_ELEMENT,
     );
     this.gl.uniform4fv(this.programState.colorLocation, stroke.color);
+    const texture = textureUniforms(stroke.texture);
+    uploadUniform1i(
+      this.gl,
+      this.programState.textureKindLocation,
+      texture.kind,
+    );
+    uploadUniform1f(
+      this.gl,
+      this.programState.textureScaleLocation,
+      texture.scale,
+    );
+    uploadUniform1f(
+      this.gl,
+      this.programState.textureStrengthLocation,
+      texture.strength,
+    );
+    uploadUniform1f(
+      this.gl,
+      this.programState.textureAngleLocation,
+      texture.angleRadians,
+    );
+    uploadUniform1f(
+      this.gl,
+      this.programState.textureScatterLocation,
+      texture.scatter,
+    );
     this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, vertexCount);
   }
 
@@ -379,7 +411,38 @@ function createProgramState(gl: WebGL2RenderingContext): ProgramState {
     const viewportLocation = requiredUniform(gl, program, "u_viewport");
     const resolutionLocation = requiredUniform(gl, program, "u_resolution");
     const colorLocation = requiredUniform(gl, program, "u_color");
-    return { program, viewportLocation, resolutionLocation, colorLocation };
+    const textureKindLocation = requiredUniform(gl, program, "u_texture_kind");
+    const textureScaleLocation = requiredUniform(
+      gl,
+      program,
+      "u_texture_scale",
+    );
+    const textureStrengthLocation = requiredUniform(
+      gl,
+      program,
+      "u_texture_strength",
+    );
+    const textureAngleLocation = requiredUniform(
+      gl,
+      program,
+      "u_texture_angle",
+    );
+    const textureScatterLocation = requiredUniform(
+      gl,
+      program,
+      "u_texture_scatter",
+    );
+    return {
+      program,
+      viewportLocation,
+      resolutionLocation,
+      colorLocation,
+      textureKindLocation,
+      textureScaleLocation,
+      textureStrengthLocation,
+      textureAngleLocation,
+      textureScatterLocation,
+    };
   } catch (error) {
     if (program !== null) {
       gl.deleteProgram(program);
@@ -422,6 +485,26 @@ function requiredUniform(
     throw new Error(`WebGL stroke program is missing ${name}`);
   }
   return location;
+}
+
+function uploadUniform1i(
+  gl: WebGL2RenderingContext,
+  location: WebGLUniformLocation,
+  value: number,
+): void {
+  if (typeof gl.uniform1i === "function") {
+    gl.uniform1i(location, value);
+  }
+}
+
+function uploadUniform1f(
+  gl: WebGL2RenderingContext,
+  location: WebGLUniformLocation,
+  value: number,
+): void {
+  if (typeof gl.uniform1f === "function") {
+    gl.uniform1f(location, value);
+  }
 }
 
 /** Convert a row-major Matrix3 into the column-major order WebGL consumes. */
