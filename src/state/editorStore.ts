@@ -7,7 +7,11 @@ import {
 } from "../engine/brush/brushEdits";
 import { buildStrokeMesh } from "../engine/brush/buildStrokeMesh";
 import { createEraserSnapshot } from "../engine/brush/eraser";
-import { orderedVisibleMarks } from "../domain/document/documentMarks";
+import {
+  findMark,
+  lastVisibleMark,
+  orderedVisibleMarks,
+} from "../domain/document/documentMarks";
 import { DEFAULT_BRUSH_ID, getBrushPreset } from "../engine/brush/presets";
 import type {
   RenderComposite,
@@ -51,6 +55,8 @@ export type EditorSnapshot = Readonly<{
   brush: BrushSnapshot;
   recentColors: readonly HexColor[];
   tool: EditorTool;
+  canUndo: boolean;
+  canRedo: boolean;
 }>;
 
 export type EditorPerformance = Readonly<{
@@ -92,6 +98,8 @@ export class EditorStore {
   #brush: BrushSnapshot;
   #recentColors: readonly HexColor[] = Object.freeze([] as HexColor[]);
   #tool: EditorTool = "brush";
+  /** In-session only. A reopened project starts with nothing to redo. */
+  #redoStack: readonly string[] = Object.freeze([] as string[]);
   readonly #listeners = new Set<() => void>();
   readonly #pendingWrites = new Map<string, Map<string, PendingWrite>>();
   readonly #retryWaves = new Map<string, Promise<void>>();
@@ -109,6 +117,8 @@ export class EditorStore {
     brush: studioPencil,
     recentColors: Object.freeze([] as HexColor[]),
     tool: "brush",
+    canUndo: false,
+    canRedo: false,
   });
 
   public constructor(options: EditorStoreOptions) {
@@ -225,6 +235,7 @@ export class EditorStore {
       samples: immutableSamples(samples),
     });
     const nextDocument = documentReducer(document, operation);
+    this.#redoStack = Object.freeze([] as string[]);
     this.#renderer?.commitStroke(toRenderStroke(operation));
     return this.#queueOperation(operation, nextDocument, startedAt);
   }
@@ -246,6 +257,7 @@ export class EditorStore {
       samples: immutableSamples(samples),
     });
     const nextDocument = documentReducer(document, operation);
+    this.#redoStack = Object.freeze([] as string[]);
     this.#renderer?.commitStroke(toRenderMark(operation));
     return this.#queueOperation(operation, nextDocument, startedAt);
   }
@@ -290,29 +302,58 @@ export class EditorStore {
     );
   }
 
-  public undoLastStroke(): Promise<void> {
-    const startedAt = this.#performance.now();
+  public undoLastMark(): Promise<void> {
     const document = this.#requireDocument();
-    const target = [...document.strokes]
-      .reverse()
-      .find((stroke) => !document.hiddenStrokeIds.includes(stroke.operationId));
+    const target = lastVisibleMark(document);
     if (!target) {
       return Promise.resolve();
     }
 
+    this.#redoStack = Object.freeze([...this.#redoStack, target.operationId]);
+    return this.#setMarkVisibility(document, target.operationId, false);
+  }
+
+  public redoLastMark(): Promise<void> {
+    const document = this.#requireDocument();
+    const operationId = this.#redoStack.at(-1);
+    if (operationId === undefined || findMark(document, operationId) === null) {
+      return Promise.resolve();
+    }
+
+    this.#redoStack = Object.freeze(this.#redoStack.slice(0, -1));
+    return this.#setMarkVisibility(document, operationId, true);
+  }
+
+  #setMarkVisibility(
+    document: DesignDocument,
+    targetOperationId: string,
+    visible: boolean,
+  ): Promise<void> {
+    const startedAt = this.#performance.now();
     const operation: StrokeVisibilityOperation = Object.freeze({
       type: "stroke.visibility-set",
       operationId: this.#createId(),
       projectId: document.projectId,
       sequence: document.operationSequence + 1,
       committedAt: this.#now(),
-      targetOperationId: target.operationId,
-      visible: false,
+      targetOperationId,
+      visible,
     });
     const nextDocument = documentReducer(document, operation);
     this.#renderer?.replaceDocument(toRenderDocument(nextDocument));
     this.#requestRender();
     return this.#queueOperation(operation, nextDocument, startedAt);
+  }
+
+  #historyFlags(
+    document: DesignDocument,
+  ): Pick<EditorSnapshot, "canUndo" | "canRedo"> {
+    return {
+      canUndo: orderedVisibleMarks(document).length > 0,
+      canRedo: this.#redoStack.some(
+        (operationId) => findMark(document, operationId) !== null,
+      ),
+    };
   }
 
   public async retrySave(): Promise<void> {
@@ -400,6 +441,7 @@ export class EditorStore {
   ): void {
     this.#renderer?.replaceDocument(toRenderDocument(document));
     this.#requestRender();
+    this.#redoStack = Object.freeze([] as string[]);
     const saveState = this.#saveState(document.projectId);
     this.#snapshot = Object.freeze({
       ...this.#snapshot,
@@ -407,6 +449,7 @@ export class EditorStore {
       projects: Object.freeze([...projects]),
       document,
       ...saveState,
+      ...this.#historyFlags(document),
       navigationBusy: false,
     });
     this.#emit();
@@ -431,6 +474,7 @@ export class EditorStore {
       document,
       saveStatus: "saving",
       saveError: null,
+      ...this.#historyFlags(document),
     });
     this.#emit();
     return this.#startAttempt(entry);

@@ -681,7 +681,7 @@ describe("EditorStore", () => {
     await store.commitStroke(samples);
     expect(requestRender).toHaveBeenCalledTimes(1);
 
-    await store.undoLastStroke();
+    await store.undoLastMark();
     expect(requestRender).toHaveBeenCalledTimes(2);
   });
 
@@ -849,5 +849,113 @@ describe("EditorStore", () => {
     const replayed =
       vi.mocked(activeRenderer.replaceDocument).mock.lastCall?.[0] ?? [];
     expect(replayed.map((mark) => mark.composite)).toEqual(["paint", "erase"]);
+  });
+
+  it("undoes and redoes strokes and erases in reverse commit order", async () => {
+    let nextId = 0;
+    const store = createEditorStore({
+      repository: repository(),
+      createId: () => `mark-${(nextId += 1)}`,
+    });
+    await store.openProject("project-1");
+
+    await store.commitStroke(samples);
+    await store.commitErase(samples, store.getActiveEraser());
+
+    expect(store.getSnapshot().canUndo).toBe(true);
+    expect(store.getSnapshot().canRedo).toBe(false);
+
+    await store.undoLastMark();
+    expect(store.getSnapshot().document?.hiddenStrokeIds).toEqual(["mark-2"]);
+    expect(store.getSnapshot().canRedo).toBe(true);
+
+    await store.undoLastMark();
+    expect(store.getSnapshot().document?.hiddenStrokeIds).toEqual([
+      "mark-2",
+      "mark-1",
+    ]);
+    expect(store.getSnapshot().canUndo).toBe(false);
+
+    await store.redoLastMark();
+    await store.redoLastMark();
+    expect(store.getSnapshot().document?.hiddenStrokeIds).toEqual([]);
+    expect(store.getSnapshot().canRedo).toBe(false);
+    expect(store.getSnapshot().canUndo).toBe(true);
+  });
+
+  it("drops the redo stack when a new mark is committed", async () => {
+    let nextId = 0;
+    const store = createEditorStore({
+      repository: repository(),
+      createId: () => `mark-${(nextId += 1)}`,
+    });
+    await store.openProject("project-1");
+
+    await store.commitStroke(samples);
+    await store.undoLastMark();
+    expect(store.getSnapshot().canRedo).toBe(true);
+
+    await store.commitStroke(samples);
+
+    expect(store.getSnapshot().canRedo).toBe(false);
+  });
+
+  it("persists undo as a visibility operation rather than deleting a mark", async () => {
+    const operations: DocumentOperation[] = [];
+    let nextId = 0;
+    const store = createEditorStore({
+      repository: repository({
+        appendOperation: vi.fn(async (operation) => {
+          operations.push(operation);
+        }),
+      }),
+      createId: () => `mark-${(nextId += 1)}`,
+    });
+    await store.openProject("project-1");
+
+    await store.commitStroke(samples);
+    await store.undoLastMark();
+
+    expect(operations.at(-1)).toMatchObject({
+      type: "stroke.visibility-set",
+      targetOperationId: "mark-1",
+      visible: false,
+    });
+    expect(store.getSnapshot().document?.strokes).toHaveLength(1);
+  });
+
+  it("re-renders only the visible marks when visibility changes", async () => {
+    const activeRenderer = renderer();
+    let nextId = 0;
+    const store = createEditorStore({
+      repository: repository(),
+      renderer: activeRenderer,
+      createId: () => `mark-${(nextId += 1)}`,
+    });
+    await store.openProject("project-1");
+
+    await store.commitStroke(samples);
+    await store.commitErase(samples, store.getActiveEraser());
+    await store.undoLastMark();
+
+    const replayed =
+      vi.mocked(activeRenderer.replaceDocument).mock.lastCall?.[0] ?? [];
+    expect(replayed.map((mark) => mark.composite)).toEqual(["paint"]);
+  });
+
+  it("starts a reopened project with an empty redo stack", async () => {
+    let nextId = 0;
+    const store = createEditorStore({
+      repository: repository(),
+      createId: () => `mark-${(nextId += 1)}`,
+    });
+    await store.openProject("project-1");
+    await store.commitStroke(samples);
+    await store.undoLastMark();
+    expect(store.getSnapshot().canRedo).toBe(true);
+
+    await store.openProject("project-1");
+
+    expect(store.getSnapshot().canRedo).toBe(false);
   });
 });

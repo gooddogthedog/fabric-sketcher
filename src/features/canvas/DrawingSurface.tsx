@@ -108,12 +108,6 @@ export function DrawingSurface({
     width,
   ]);
 
-  const canUndo =
-    snapshot.document?.strokes.some(
-      (stroke) =>
-        !snapshot.document?.hiddenStrokeIds.includes(stroke.operationId),
-    ) ?? false;
-
   const commitFoundationTransform = (transform: Matrix3) => {
     const foundation = store.getSnapshot().document?.foundation;
     if (foundation && !foundation.locked) {
@@ -177,11 +171,19 @@ export function DrawingSurface({
         </button>
         <button
           className="undo-control"
-          disabled={!canUndo}
-          onClick={() => void store.undoLastStroke()}
+          disabled={!snapshot.canUndo}
+          onClick={() => void store.undoLastMark()}
           type="button"
         >
-          Undo last stroke
+          Undo last mark
+        </button>
+        <button
+          className="undo-control"
+          disabled={!snapshot.canRedo}
+          onClick={() => void store.redoLastMark()}
+          type="button"
+        >
+          Redo
         </button>
       </div>
       {compatibilityMode ? (
