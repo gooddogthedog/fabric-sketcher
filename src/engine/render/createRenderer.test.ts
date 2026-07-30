@@ -201,6 +201,7 @@ function stroke(
       angle: 0,
       scatter: 0.18,
     },
+    composite: "paint",
   };
 }
 

@@ -524,6 +524,7 @@ export function toRenderStroke(operation: StrokeOperation): RenderStroke {
     mesh: buildStrokeMesh(operation.samples, operation.brush),
     color: hexColor(operation.brush.color),
     texture: Object.freeze({ ...operation.brush.texture }),
+    composite: "paint",
   });
 }
 

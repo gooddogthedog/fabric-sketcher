@@ -41,7 +41,8 @@ export function documentReducer(
   if (
     document.strokes.some(
       (stroke) => stroke.operationId === operation.operationId,
-    )
+    ) ||
+    document.erases.some((erase) => erase.operationId === operation.operationId)
   ) {
     return document;
   }
@@ -68,9 +69,13 @@ export function documentReducer(
   }
 
   if (operation.type === "stroke.visibility-set") {
-    const targetExists = document.strokes.some(
-      (stroke) => stroke.operationId === operation.targetOperationId,
-    );
+    const targetExists =
+      document.strokes.some(
+        (stroke) => stroke.operationId === operation.targetOperationId,
+      ) ||
+      document.erases.some(
+        (erase) => erase.operationId === operation.targetOperationId,
+      );
     if (!targetExists) {
       throw new DocumentVisibilityError(operation.targetOperationId);
     }
@@ -91,6 +96,15 @@ export function documentReducer(
   if (operation.samples.length < 2) {
     throw new DocumentStrokeError(operation.samples.length);
   }
+
+  if (operation.type === "erase.committed") {
+    return {
+      ...document,
+      operationSequence: operation.sequence,
+      erases: [...document.erases, operation],
+    };
+  }
+
   const stroke = normalizeLegacyPencilStroke(operation);
 
   return {
