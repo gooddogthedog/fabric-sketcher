@@ -130,6 +130,9 @@ export function normalizeDocumentOperation(value: unknown): DocumentOperation {
   if (isValidStrokeOperation(value)) {
     return normalizeLegacyPencilStroke(value);
   }
+  if (isValidEraseOperation(value)) {
+    return value;
+  }
   if (isValidVisibilityOperation(value)) {
     return value;
   }

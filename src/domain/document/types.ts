@@ -138,6 +138,7 @@ export type DocumentTitleSetOperation = Readonly<{
 
 export type DocumentOperation =
   | StrokeOperation
+  | EraseOperation
   | StrokeVisibilityOperation
   | FoundationSetOperation
   | DocumentTitleSetOperation;

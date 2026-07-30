@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDocument } from "../../domain/document/createDocument";
 import { documentReducer } from "../../domain/document/documentReducer";
 import type {
+  EraseOperation,
   FoundationSetOperation,
   FoundationState,
   StrokeOperation,
@@ -134,6 +135,53 @@ export function describeProjectRepositoryContract(
 
     afterEach(async () => {
       await harness.cleanup();
+    });
+
+    it("replays an erase and a hidden erase id from the journal", async () => {
+      const initial = createDocument({
+        projectId: "project-1",
+        title: "Erase replay",
+      });
+      await harness.repository.createProject(initial);
+
+      const paintedStroke = stroke();
+      const eraseOperation: EraseOperation = {
+        type: "erase.committed",
+        operationId: "erase-1",
+        projectId: "project-1",
+        layerId: "paint-layer:project-1",
+        sequence: 2,
+        committedAt: "2026-07-21T10:02:00.000Z",
+        eraser: {
+          tipBrushId: "studio-pencil-v1",
+          size: 40,
+          opacity: 1,
+          pressureSize: 1,
+          pressureOpacity: 0,
+          tiltShape: 0,
+        },
+        samples: paintedStroke.samples,
+      };
+
+      await harness.repository.appendOperation(paintedStroke);
+      await harness.repository.appendOperation(eraseOperation);
+      await harness.repository.appendOperation(
+        visibility({
+          operationId: "visibility-1",
+          sequence: 3,
+          targetOperationId: "erase-1",
+          visible: false,
+        }),
+      );
+
+      const reopened = await harness.repository.loadProject("project-1");
+
+      expect(reopened.schemaVersion).toBe(3);
+      expect(reopened.strokes.map((entry) => entry.operationId)).toEqual([
+        paintedStroke.operationId,
+      ]);
+      expect(reopened.erases).toEqual([eraseOperation]);
+      expect(reopened.hiddenStrokeIds).toEqual(["erase-1"]);
     });
 
     it("creates, lists, and loads projects ordered by most recently updated", async () => {
