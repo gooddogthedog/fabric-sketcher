@@ -688,6 +688,22 @@ describe("DrawingSurface", () => {
     }
   });
 
+  it("never lets a drag select the workspace", async () => {
+    const style = document.createElement("style");
+    style.textContent = APP_STYLES;
+    document.head.append(style);
+    const store = await openStore(projectRepository());
+    const view = renderSurface(store, mockRenderer(), mockViewport());
+
+    try {
+      const surface = view.container.querySelector(".drawing-surface");
+      expect(surface).not.toBeNull();
+      expect(getComputedStyle(surface!).userSelect).toBe("none");
+    } finally {
+      style.remove();
+    }
+  });
+
   it("keeps both shelf close controls at least 56 pixels square", async () => {
     const style = document.createElement("style");
     style.textContent = APP_STYLES;
