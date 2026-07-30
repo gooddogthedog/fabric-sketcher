@@ -13,6 +13,7 @@ import {
 } from "../foundations/FoundationOverlay";
 import type { FoundationAssetHealth } from "../foundations/foundationAssetHealth";
 import { LayersShelf, type EdgeShelfId } from "../foundations/LayersShelf";
+import { QuickToolPuck } from "../tools/QuickToolPuck";
 import {
   createDrawingController,
   type DrawingViewportFactory,
@@ -156,36 +157,10 @@ export function DrawingSurface({
           store={store}
         />
       </div>
-      <div className="drawing-surface__actions">
-        {/* The quick-tool puck replaces this row; it keeps the eraser
-            reachable in the meantime. */}
-        <button
-          aria-pressed={snapshot.tool === "eraser"}
-          className="undo-control"
-          onClick={() =>
-            store.setTool(snapshot.tool === "eraser" ? "brush" : "eraser")
-          }
-          type="button"
-        >
-          {snapshot.tool === "eraser" ? "Eraser on" : "Eraser off"}
-        </button>
-        <button
-          className="undo-control"
-          disabled={!snapshot.canUndo}
-          onClick={() => void store.undoLastMark()}
-          type="button"
-        >
-          Undo last mark
-        </button>
-        <button
-          className="undo-control"
-          disabled={!snapshot.canRedo}
-          onClick={() => void store.redoLastMark()}
-          type="button"
-        >
-          Redo
-        </button>
-      </div>
+      <QuickToolPuck
+        onOpenBrushes={() => changeShelf("brushes", true)}
+        store={store}
+      />
       {compatibilityMode ? (
         <p className="compatibility-notice" role="status">
           Compatibility rendering is active.

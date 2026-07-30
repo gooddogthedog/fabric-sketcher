@@ -1377,9 +1377,7 @@ describe("DrawingSurface", () => {
     expect(renderer.render).toHaveBeenCalledTimes(1);
 
     renderer.render.mockClear();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Undo last mark" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
     flushFrames();
     expect(renderer.render).toHaveBeenCalledTimes(1);
   });
@@ -1422,7 +1420,7 @@ describe("DrawingSurface", () => {
     expect(renderer.resize).toHaveBeenLastCalledWith(640, 480, 2);
   });
 
-  it("exposes the active canvas and an append-only Undo last mark control", async () => {
+  it("exposes the active canvas and an append-only Undo control", async () => {
     const user = userEvent.setup();
     const repository = projectRepository();
     const store = await openStore(repository);
@@ -1433,7 +1431,7 @@ describe("DrawingSurface", () => {
       "Drawing canvas for Linen Wrap Study",
     );
     expect(view.surface).toHaveFocus();
-    const undo = screen.getByRole("button", { name: "Undo last mark" });
+    const undo = screen.getByRole("button", { name: "Undo" });
     expect(undo).toBeDisabled();
 
     fireEvent(view.surface, pointerEvent("pointerdown", sample(10, 20, 100)));

@@ -910,32 +910,6 @@ canvas:focus-visible {
   padding: 12px 16px 12px 13px;
 }
 
-.drawing-surface__actions {
-  position: absolute;
-  inset-inline-end: max(20px, env(safe-area-inset-right));
-  bottom: max(20px, env(safe-area-inset-bottom));
-}
-
-.undo-control {
-  min-width: 56px;
-  min-height: 56px;
-  border: 1px solid var(--color-line);
-  border-radius: 6px;
-  padding: 12px 16px;
-  color: var(--color-ink);
-  background: var(--color-surface);
-  font-size: 0.875rem;
-  font-weight: 500;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-.undo-control:disabled {
-  color: var(--color-muted);
-  cursor: default;
-  opacity: 0.55;
-}
-
 .compatibility-notice {
   position: absolute;
   bottom: max(20px, env(safe-area-inset-bottom));
@@ -1015,9 +989,9 @@ canvas:focus-visible {
     padding: 20px 16px 88px;
   }
 
-  .drawing-surface__actions {
+  .quick-tool-puck {
     inset-inline-end: max(12px, env(safe-area-inset-right));
-    bottom: max(12px, env(safe-area-inset-bottom));
+    inset-block-end: max(12px, env(safe-area-inset-bottom));
   }
 
   .brush-shelf {
@@ -1165,13 +1139,105 @@ canvas:focus-visible {
   color: var(--color-accent);
 }
 
-.drawing-surface__actions {
-  display: flex;
-  gap: 8px;
+/* The radial dial sits over the artwork, so it must out-stack the canvas. */
+.quick-tool-puck {
+  position: absolute;
+  z-index: 2;
+  inline-size: 208px;
+  block-size: 208px;
+  transform: translate(var(--puck-offset-x, 0px), var(--puck-offset-y, 0px));
+  border: 1px solid var(--color-line);
+  border-radius: 50%;
+  background: var(--color-surface);
+  box-shadow: 0 6px 20px rgb(38 36 33 / 10%);
+  inset-block-end: max(20px, env(safe-area-inset-bottom));
+  inset-inline-end: max(20px, env(safe-area-inset-right));
+  touch-action: none;
 }
 
-.undo-control[aria-pressed="true"] {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
+.quick-tool-puck__arc {
+  position: absolute;
+  inset: -1px;
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.quick-tool-puck__hub {
+  display: grid;
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  place-items: center;
+  inline-size: 76px;
+  block-size: 76px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--color-ink);
   color: var(--color-surface);
+}
+
+.quick-tool-puck__slot {
+  display: grid;
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  place-items: center;
+  inline-size: 56px;
+  block-size: 56px;
+  transform: translate(-50%, -50%)
+    translate(var(--slot-x, 0px), var(--slot-y, 0px));
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.quick-tool-puck__slot[aria-pressed="true"] {
+  color: var(--color-accent);
+}
+
+.quick-tool-puck__slot:disabled {
+  color: var(--color-line);
+  cursor: default;
+}
+
+.quick-tool-puck__slot:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 0;
+}
+
+.quick-tool-puck__swatch {
+  inline-size: 26px;
+  block-size: 26px;
+  border: 1px solid var(--color-line);
+  border-radius: 50%;
+  background: var(--puck-swatch, var(--color-ink));
+}
+
+.quick-tool-puck__grip {
+  color: var(--color-muted);
+  cursor: grab;
+}
+
+.quick-tool-puck__icon {
+  inline-size: 22px;
+  block-size: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.quick-tool-puck__hub .quick-tool-puck__icon {
+  inline-size: 30px;
+  block-size: 30px;
+}
+
+.quick-tool-puck__grip .quick-tool-puck__icon {
+  fill: currentColor;
+  stroke: none;
 }
