@@ -1164,3 +1164,14 @@ canvas:focus-visible {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
+
+.drawing-surface__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.undo-control[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-surface);
+}

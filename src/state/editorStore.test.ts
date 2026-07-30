@@ -775,4 +775,79 @@ describe("EditorStore", () => {
       brush: { id: "denim-v1", size: 90 },
     });
   });
+
+  it("commits an erase carrying the active brush tip", async () => {
+    const operations: DocumentOperation[] = [];
+    const store = createEditorStore({
+      repository: repository({
+        appendOperation: vi.fn(async (operation) => {
+          operations.push(operation);
+        }),
+      }),
+      createId: () => "erase-1",
+    });
+    await store.openProject("project-1");
+
+    store.selectBrush("denim-v1");
+    store.setBrushSize(64);
+    store.setTool("eraser");
+    await store.commitErase(samples, store.getActiveEraser());
+
+    expect(store.getSnapshot().tool).toBe("eraser");
+    expect(operations[0]).toMatchObject({
+      type: "erase.committed",
+      eraser: { tipBrushId: "denim-v1", size: 64 },
+    });
+    expect(store.getSnapshot().document?.strokes).toEqual([]);
+    expect(store.getSnapshot().document?.erases).toHaveLength(1);
+  });
+
+  it("defaults to the brush tool and reports the active tool", () => {
+    const store = createEditorStore({ repository: repository() });
+
+    expect(store.getActiveTool()).toBe("brush");
+    expect(store.getSnapshot().tool).toBe("brush");
+
+    store.setTool("eraser");
+
+    expect(store.getActiveTool()).toBe("eraser");
+  });
+
+  it("renders paint and erase marks with their own compositing", async () => {
+    const activeRenderer = renderer();
+    let nextId = 0;
+    const store = createEditorStore({
+      repository: repository(),
+      renderer: activeRenderer,
+      createId: () => `mark-${(nextId += 1)}`,
+    });
+    await store.openProject("project-1");
+
+    await store.commitStroke(samples);
+    await store.commitErase(samples, store.getActiveEraser());
+
+    expect(
+      vi
+        .mocked(activeRenderer.commitStroke)
+        .mock.calls.map(([mark]) => mark.composite),
+    ).toEqual(["paint", "erase"]);
+  });
+
+  it("replays strokes and erases in commit order when a renderer attaches", async () => {
+    let nextId = 0;
+    const store = createEditorStore({
+      repository: repository(),
+      createId: () => `mark-${(nextId += 1)}`,
+    });
+    await store.openProject("project-1");
+    await store.commitStroke(samples);
+    await store.commitErase(samples, store.getActiveEraser());
+
+    const activeRenderer = renderer();
+    store.attachRenderer(activeRenderer);
+
+    const replayed =
+      vi.mocked(activeRenderer.replaceDocument).mock.lastCall?.[0] ?? [];
+    expect(replayed.map((mark) => mark.composite)).toEqual(["paint", "erase"]);
+  });
 });

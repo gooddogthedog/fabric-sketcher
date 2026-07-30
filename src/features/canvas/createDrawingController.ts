@@ -1,8 +1,10 @@
 import type {
   BrushSnapshot,
   DesignDocument,
+  EraserSnapshot,
   PenSample,
 } from "../../domain/document/types";
+import type { EditorTool } from "../../state/editorStore";
 import { buildStrokeMesh } from "../../engine/brush/buildStrokeMesh";
 import { normalizePointerEvent } from "../../engine/input/normalizePointerEvent";
 import type { InputBatch, PointerEventLike } from "../../engine/input/types";
@@ -52,7 +54,13 @@ export type CreateDrawingControllerOptions = Readonly<{
     samples: readonly PenSample[],
     brush: BrushSnapshot,
   ) => void | PromiseLike<void>;
+  commitErase: (
+    samples: readonly PenSample[],
+    eraser: EraserSnapshot,
+  ) => void | PromiseLike<void>;
   getBrush: () => BrushSnapshot;
+  getTool: () => EditorTool;
+  getEraser: () => EraserSnapshot;
   viewportFactory?: DrawingViewportFactory;
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (frameId: number) => void;
@@ -85,6 +93,8 @@ export function createDrawingController(
   let activePencilContact: Point2D | null = null;
   let activePencilPointerId: number | null = null;
   let pencilDownBrush: BrushSnapshot | null = null;
+  let pencilDownTool: EditorTool = "brush";
+  let pencilDownEraser: EraserSnapshot | null = null;
   let renderFrame: number | null = null;
   let disposed = false;
 
@@ -108,21 +118,28 @@ export function createDrawingController(
     onPreview: (confirmed, predicted) => {
       if (confirmed.length === 0 && predicted.length === 0) {
         renderer.clearPreview();
-      } else {
-        if (pencilDownBrush) {
-          renderer.previewStroke(
-            previewStroke("preview-confirmed", confirmed, pencilDownBrush),
-            previewStroke("preview-predicted", predicted, pencilDownBrush),
-          );
-        }
+      } else if (pencilDownTool === "eraser" && pencilDownEraser) {
+        renderer.previewStroke(
+          erasePreview("preview-confirmed", confirmed, pencilDownEraser),
+          erasePreview("preview-predicted", predicted, pencilDownEraser),
+        );
+      } else if (pencilDownBrush) {
+        renderer.previewStroke(
+          previewStroke("preview-confirmed", confirmed, pencilDownBrush),
+          previewStroke("preview-predicted", predicted, pencilDownBrush),
+        );
       }
       scheduleRender();
     },
     onCommit: (samples) => {
-      if (!pencilDownBrush) {
-        return;
-      }
-      const result = options.commitStroke(samples, pencilDownBrush);
+      // The captured tool decides this contact's commit. Never re-read it here:
+      // a later shaping stage owns `samples`, and the tool may already differ.
+      const result =
+        pencilDownTool === "eraser" && pencilDownEraser
+          ? options.commitErase(samples, pencilDownEraser)
+          : pencilDownBrush
+            ? options.commitStroke(samples, pencilDownBrush)
+            : undefined;
       scheduleRender();
       return result;
     },
@@ -145,6 +162,8 @@ export function createDrawingController(
     event.preventDefault();
     activePencilPointerId = event.pointerId;
     pencilDownBrush = immutableBrush(options.getBrush());
+    pencilDownTool = options.getTool();
+    pencilDownEraser = pencilDownTool === "eraser" ? options.getEraser() : null;
     activePencilContact = toLocalPoint(event, surface);
     capturePointer(surface, event.pointerId);
     strokeSession.handle(toInputBatch(event, "down", surface, viewport));
@@ -186,6 +205,7 @@ export function createDrawingController(
     activePencilContact = null;
     activePencilPointerId = null;
     pencilDownBrush = null;
+    pencilDownEraser = null;
     releasePointer(surface, event.pointerId);
   };
 
@@ -207,6 +227,7 @@ export function createDrawingController(
     activePencilContact = null;
     activePencilPointerId = null;
     pencilDownBrush = null;
+    pencilDownEraser = null;
     releasePointer(surface, event.pointerId);
   };
 
@@ -221,6 +242,7 @@ export function createDrawingController(
       activePencilContact = null;
       activePencilPointerId = null;
       pencilDownBrush = null;
+      pencilDownEraser = null;
     }
   };
 
@@ -339,6 +361,23 @@ function toLocalPoint(
   return {
     x: event.clientX - bounds.left,
     y: event.clientY - bounds.top,
+  };
+}
+
+function erasePreview(
+  operationId: string,
+  samples: readonly PenSample[],
+  eraser: EraserSnapshot,
+): RenderStroke | null {
+  if (samples.length === 0) {
+    return null;
+  }
+  return {
+    operationId,
+    mesh: buildStrokeMesh(samples, eraser),
+    color: [0, 0, 0, 1],
+    texture: { kind: "graphite", scale: 1, strength: 0, angle: 0, scatter: 0 },
+    composite: "erase",
   };
 }
 

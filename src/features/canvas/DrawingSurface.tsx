@@ -75,7 +75,10 @@ export function DrawingSurface({
         height,
       },
       commitStroke: store.commitStroke.bind(store),
+      commitErase: store.commitErase.bind(store),
       getBrush: store.getActiveBrush,
+      getTool: store.getActiveTool,
+      getEraser: store.getActiveEraser,
       viewportFactory,
       onViewportChange: (matrix) => {
         foundationOverlayRef.current?.setViewport(matrix);
@@ -160,6 +163,18 @@ export function DrawingSurface({
         />
       </div>
       <div className="drawing-surface__actions">
+        {/* The quick-tool puck replaces this row; it keeps the eraser
+            reachable in the meantime. */}
+        <button
+          aria-pressed={snapshot.tool === "eraser"}
+          className="undo-control"
+          onClick={() =>
+            store.setTool(snapshot.tool === "eraser" ? "brush" : "eraser")
+          }
+          type="button"
+        >
+          {snapshot.tool === "eraser" ? "Eraser on" : "Eraser off"}
+        </button>
         <button
           className="undo-control"
           disabled={!canUndo}

@@ -6,15 +6,24 @@ import {
   setBrushSize,
 } from "../engine/brush/brushEdits";
 import { buildStrokeMesh } from "../engine/brush/buildStrokeMesh";
+import { createEraserSnapshot } from "../engine/brush/eraser";
+import { orderedVisibleMarks } from "../domain/document/documentMarks";
 import { DEFAULT_BRUSH_ID, getBrushPreset } from "../engine/brush/presets";
-import type { Renderer, RenderStroke } from "../engine/render/Renderer";
+import type {
+  RenderComposite,
+  Renderer,
+  RenderStroke,
+} from "../engine/render/Renderer";
 import { createDocument } from "../domain/document/createDocument";
 import { documentReducer } from "../domain/document/documentReducer";
 import { immutableFoundation } from "../domain/document/foundationState";
 import type {
   BrushSnapshot,
   DesignDocument,
+  DocumentMark,
   DocumentOperation,
+  EraseOperation,
+  EraserSnapshot,
   FoundationSetOperation,
   FoundationState,
   HexColor,
@@ -30,6 +39,8 @@ import type {
 
 export type EditorSaveStatus = "saved" | "saving" | "error";
 
+export type EditorTool = "brush" | "eraser";
+
 export type EditorSnapshot = Readonly<{
   view: "gallery" | "editor";
   projects: readonly ProjectSummary[];
@@ -39,6 +50,7 @@ export type EditorSnapshot = Readonly<{
   navigationBusy: boolean;
   brush: BrushSnapshot;
   recentColors: readonly HexColor[];
+  tool: EditorTool;
 }>;
 
 export type EditorPerformance = Readonly<{
@@ -79,6 +91,7 @@ export class EditorStore {
   readonly #confirmClose: () => boolean | Promise<boolean>;
   #brush: BrushSnapshot;
   #recentColors: readonly HexColor[] = Object.freeze([] as HexColor[]);
+  #tool: EditorTool = "brush";
   readonly #listeners = new Set<() => void>();
   readonly #pendingWrites = new Map<string, Map<string, PendingWrite>>();
   readonly #retryWaves = new Map<string, Promise<void>>();
@@ -95,6 +108,7 @@ export class EditorStore {
     navigationBusy: false,
     brush: studioPencil,
     recentColors: Object.freeze([] as HexColor[]),
+    tool: "brush",
   });
 
   public constructor(options: EditorStoreOptions) {
@@ -135,6 +149,16 @@ export class EditorStore {
   public resetBrush(): void {
     this.#applyBrush(resetBrushToPreset(this.#brush));
   }
+
+  public getActiveTool = (): EditorTool => this.#tool;
+
+  public setTool(tool: EditorTool): void {
+    this.#tool = tool;
+    this.#update({ tool });
+  }
+
+  public getActiveEraser = (): EraserSnapshot =>
+    createEraserSnapshot(this.#brush);
 
   #applyBrush(brush: BrushSnapshot): void {
     this.#brush = brush;
@@ -202,6 +226,27 @@ export class EditorStore {
     });
     const nextDocument = documentReducer(document, operation);
     this.#renderer?.commitStroke(toRenderStroke(operation));
+    return this.#queueOperation(operation, nextDocument, startedAt);
+  }
+
+  public commitErase(
+    samples: readonly PenSample[],
+    eraser: EraserSnapshot = this.getActiveEraser(),
+  ): Promise<void> {
+    const startedAt = this.#performance.now();
+    const document = this.#requireDocument();
+    const operation: EraseOperation = Object.freeze({
+      type: "erase.committed",
+      operationId: this.#createId(),
+      projectId: document.projectId,
+      layerId: document.activeLayerId,
+      sequence: document.operationSequence + 1,
+      committedAt: this.#now(),
+      eraser: Object.freeze({ ...eraser }),
+      samples: immutableSamples(samples),
+    });
+    const nextDocument = documentReducer(document, operation);
+    this.#renderer?.commitStroke(toRenderMark(operation));
     return this.#queueOperation(operation, nextDocument, startedAt);
   }
 
@@ -528,10 +573,30 @@ export function toRenderStroke(operation: StrokeOperation): RenderStroke {
   });
 }
 
+/** An erase carries no material, so its texture is deliberately inert. */
+const ERASE_TEXTURE = Object.freeze({
+  kind: "graphite" as const,
+  scale: 1,
+  strength: 0,
+  angle: 0,
+  scatter: 0,
+});
+
+export function toRenderMark(mark: DocumentMark): RenderStroke {
+  if (mark.type === "erase.committed") {
+    return Object.freeze({
+      operationId: mark.operationId,
+      mesh: buildStrokeMesh(mark.samples, mark.eraser),
+      color: Object.freeze([0, 0, 0, 1]) as RenderStroke["color"],
+      texture: ERASE_TEXTURE,
+      composite: "erase" as RenderComposite,
+    });
+  }
+  return toRenderStroke(mark);
+}
+
 function toRenderDocument(document: DesignDocument): readonly RenderStroke[] {
-  return document.strokes
-    .filter((stroke) => !document.hiddenStrokeIds.includes(stroke.operationId))
-    .map(toRenderStroke);
+  return orderedVisibleMarks(document).map(toRenderMark);
 }
 
 function hexColor(color: `#${string}`): readonly [number, number, number, 1] {

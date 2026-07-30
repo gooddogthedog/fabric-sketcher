@@ -17,7 +17,9 @@ import { createFoundationState } from "../../domain/document/foundationState";
 import type {
   BrushSnapshot,
   DocumentOperation,
+  EraserSnapshot,
 } from "../../domain/document/types";
+import { createEraserSnapshot } from "../../engine/brush/eraser";
 import { getBrushPreset } from "../../engine/brush/presets";
 import type { Renderer } from "../../engine/render/Renderer";
 import type { RendererSelection } from "../../engine/render/createRenderer";
@@ -28,7 +30,11 @@ import {
   type Matrix3,
 } from "../../engine/math/affine";
 import type { ProjectRepository } from "../../platform/persistence/types";
-import { createEditorStore, type EditorStore } from "../../state/editorStore";
+import {
+  createEditorStore,
+  type EditorStore,
+  type EditorTool,
+} from "../../state/editorStore";
 import {
   createDrawingController,
   type DrawingViewport,
@@ -287,6 +293,90 @@ function renderSurface(
   };
 }
 
+describe("createDrawingController eraser", () => {
+  it("commits an erase with the tool captured at Pencil-down", () => {
+    const surface = document.createElement("canvas");
+    surface.setPointerCapture = vi.fn();
+    surface.releasePointerCapture = vi.fn();
+    const renderer = mockRenderer();
+    const painted: BrushSnapshot[] = [];
+    const erased: EraserSnapshot[] = [];
+    const denim = getBrushPreset("denim-v1");
+    let tool: EditorTool = "eraser";
+
+    createDrawingController({
+      surface,
+      renderer,
+      document: createDocument({
+        projectId: "project-1",
+        title: "Eraser test",
+      }),
+      commitStroke: (_samples, brush) => {
+        painted.push(brush);
+      },
+      commitErase: (_samples, eraser) => {
+        erased.push(eraser);
+      },
+      getBrush: () => denim,
+      getTool: () => tool,
+      getEraser: () => createEraserSnapshot(denim),
+      viewportFactory: () => mockViewport(),
+    });
+
+    surface.dispatchEvent(pointerEvent("pointerdown", sample(10, 20, 100)));
+    // Switching mid-contact must not change what this contact commits.
+    tool = "brush";
+    surface.dispatchEvent(pointerEvent("pointermove", sample(30, 40, 110)));
+
+    const preview = vi.mocked(renderer.previewStroke).mock.lastCall?.[0];
+    expect(preview?.composite).toBe("erase");
+    expect(preview?.texture.strength).toBe(0);
+
+    surface.dispatchEvent(pointerEvent("pointerup", sample(40, 50, 120)));
+
+    expect(painted).toEqual([]);
+    expect(erased).toEqual([createEraserSnapshot(denim)]);
+  });
+
+  it("keeps painting while the brush tool is active", () => {
+    const surface = document.createElement("canvas");
+    surface.setPointerCapture = vi.fn();
+    surface.releasePointerCapture = vi.fn();
+    const renderer = mockRenderer();
+    const painted: BrushSnapshot[] = [];
+    const erased: EraserSnapshot[] = [];
+    const pencil = getBrushPreset("studio-pencil-v1");
+
+    createDrawingController({
+      surface,
+      renderer,
+      document: createDocument({
+        projectId: "project-1",
+        title: "Brush test",
+      }),
+      commitStroke: (_samples, brush) => {
+        painted.push(brush);
+      },
+      commitErase: (_samples, eraser) => {
+        erased.push(eraser);
+      },
+      getBrush: () => pencil,
+      getTool: () => "brush",
+      getEraser: () => createEraserSnapshot(pencil),
+      viewportFactory: () => mockViewport(),
+    });
+
+    surface.dispatchEvent(pointerEvent("pointerdown", sample(10, 20, 100)));
+    surface.dispatchEvent(pointerEvent("pointermove", sample(30, 40, 110)));
+    const preview = vi.mocked(renderer.previewStroke).mock.lastCall?.[0];
+    surface.dispatchEvent(pointerEvent("pointerup", sample(40, 50, 120)));
+
+    expect(preview?.composite).toBe("paint");
+    expect(erased).toEqual([]);
+    expect(painted).toEqual([pencil]);
+  });
+});
+
 describe("DrawingSurface", () => {
   it("uses the brush selected after controller creation for preview and commit", () => {
     const surface = document.createElement("canvas");
@@ -303,7 +393,10 @@ describe("DrawingSurface", () => {
       commitStroke: (_samples, brush) => {
         committed.push(brush);
       },
+      commitErase: () => undefined,
       getBrush: () => selectedBrush,
+      getTool: () => "brush",
+      getEraser: () => createEraserSnapshot(selectedBrush),
       viewportFactory: () => mockViewport(),
     });
     selectedBrush = getBrushPreset("denim-v1");
@@ -342,7 +435,10 @@ describe("DrawingSurface", () => {
       commitStroke: (_samples, brush) => {
         committed.push(brush);
       },
+      commitErase: () => undefined,
       getBrush: () => selectedBrush,
+      getTool: () => "brush",
+      getEraser: () => createEraserSnapshot(selectedBrush),
       viewportFactory: () => mockViewport(),
     });
 
@@ -389,7 +485,10 @@ describe("DrawingSurface", () => {
       commitStroke: (_samples, brush) => {
         committed.push(brush);
       },
+      commitErase: () => undefined,
       getBrush: () => selectedBrush,
+      getTool: () => "brush",
+      getEraser: () => createEraserSnapshot(selectedBrush),
       viewportFactory: () => mockViewport(),
     });
 
@@ -1169,7 +1268,10 @@ describe("DrawingSurface", () => {
         title: "Offset pinch",
       }),
       commitStroke: vi.fn(),
+      commitErase: () => undefined,
       getBrush: () => getBrushPreset("studio-pencil-v1"),
+      getTool: () => "brush",
+      getEraser: () => createEraserSnapshot(getBrushPreset("studio-pencil-v1")),
       requestFrame: (callback) => {
         const id = ++nextFrame;
         frames.set(id, callback);
