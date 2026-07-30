@@ -5,8 +5,9 @@ import type { RenderStroke } from "./Renderer";
 class FakeCanvasContext {
   public fillStyle: string | CanvasGradient | CanvasPattern = "";
   public globalAlpha = 1;
+  public globalCompositeOperation = "source-over";
   public readonly fills: Array<
-    Readonly<{ fillStyle: unknown; alpha: number }>
+    Readonly<{ fillStyle: unknown; alpha: number; composite: string }>
   > = [];
   public readonly patterns: Array<readonly [HTMLCanvasElement, "repeat"]> = [];
   public uniquePatterns = false;
@@ -23,7 +24,11 @@ class FakeCanvasContext {
   public lineTo(): void {}
   public closePath(): void {}
   public fill(): void {
-    this.fills.push({ fillStyle: this.fillStyle, alpha: this.globalAlpha });
+    this.fills.push({
+      fillStyle: this.fillStyle,
+      alpha: this.globalAlpha,
+      composite: this.globalCompositeOperation,
+    });
   }
   public createPattern(
     tile: HTMLCanvasElement,
@@ -144,8 +149,49 @@ function stroke(): RenderStroke {
       angle: 42,
       scatter: 0.12,
     },
+    composite: "paint",
   };
 }
+
+describe("Canvas2DRenderer erase compositing", () => {
+  it("erases with destination-out and a solid fill, then restores source-over", () => {
+    const context = new FakeCanvasContext();
+    const renderer = new Canvas2DRenderer(
+      document.createElement("canvas"),
+      context.asContext(),
+      textureDocument(),
+    );
+    renderer.replaceDocument([{ ...stroke(), composite: "erase" }]);
+
+    renderer.render(0);
+
+    expect(context.patterns).toHaveLength(0);
+    expect(context.fills).toHaveLength(1);
+    expect(context.fills[0]?.fillStyle).toBe("rgb(0 0 0)");
+    expect(context.fills[0]?.composite).toBe("destination-out");
+    expect(context.globalCompositeOperation).toBe("source-over");
+  });
+
+  it("keeps painting a following stroke with source-over", () => {
+    const context = new FakeCanvasContext();
+    const renderer = new Canvas2DRenderer(
+      document.createElement("canvas"),
+      context.asContext(),
+      textureDocument(),
+    );
+    renderer.replaceDocument([
+      { ...stroke(), operationId: "erase-1", composite: "erase" },
+      { ...stroke(), operationId: "paint-1" },
+    ]);
+
+    renderer.render(0);
+
+    expect(context.fills.map(({ composite }) => composite)).toEqual([
+      "destination-out",
+      "source-over",
+    ]);
+  });
+});
 
 describe("Canvas2DRenderer texture compatibility", () => {
   it("repeats a cached texture pattern while retaining the segment pressure alpha", () => {

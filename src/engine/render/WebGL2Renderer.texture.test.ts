@@ -13,6 +13,8 @@ type DrawEvent =
   | Readonly<{ type: "uniform1f"; name: string; value: number }>
   | Readonly<{ type: "draw"; count: number }>;
 
+type BlendCall = Readonly<{ source: number; destination: number }>;
+
 class TextureCaptureWebGL2Context {
   public readonly VERTEX_SHADER = 0x8b31;
   public readonly FRAGMENT_SHADER = 0x8b30;
@@ -27,6 +29,7 @@ class TextureCaptureWebGL2Context {
   public readonly BLEND = 0x0be2;
   public readonly DEPTH_TEST = 0x0b71;
   public readonly CULL_FACE = 0x0b44;
+  public readonly ZERO = 0;
   public readonly ONE = 1;
   public readonly ONE_MINUS_SRC_ALPHA = 0x0303;
 
@@ -81,7 +84,12 @@ class TextureCaptureWebGL2Context {
   public useProgram(): void {}
   public enable(): void {}
   public disable(): void {}
-  public blendFunc(): void {}
+  /** Kept out of `events` so exhaustive draw-order assertions stay stable. */
+  public readonly blendCalls: BlendCall[] = [];
+
+  public blendFunc(source: number, destination: number): void {
+    this.blendCalls.push({ source, destination });
+  }
   public enableVertexAttribArray(): void {}
   public vertexAttribPointer(): void {}
   public uniformMatrix3fv(): void {}
@@ -117,6 +125,7 @@ function stroke(
     mesh: new Float32Array([10, 12, 1, 10, 8, 1, 30, 12, 0.75, 30, 8, 0.75]),
     color: [0.2, 0.4, 0.6, 0.8],
     texture: getBrushPreset(presetId).texture,
+    composite: "paint",
   };
 }
 
@@ -126,6 +135,28 @@ function canvas(): HTMLCanvasElement {
   target.height = 200;
   return target;
 }
+
+describe("WebGL2 erase compositing", () => {
+  it("erases with a destination-attenuating blend and restores paint blending", () => {
+    const gl = new TextureCaptureWebGL2Context();
+    const renderer = new WebGL2Renderer(canvas(), gl.asContext(), {
+      getContext: () => gl.asContext(),
+    });
+
+    renderer.replaceDocument([
+      stroke("painted", "denim-v1"),
+      { ...stroke("erased", "denim-v1"), composite: "erase" },
+    ]);
+    renderer.render(0);
+
+    // One call comes from constructor setup; a painted mark must add none.
+    expect(gl.blendCalls).toHaveLength(3);
+    expect(gl.blendCalls.slice(-2)).toEqual([
+      { source: gl.ZERO, destination: gl.ONE_MINUS_SRC_ALPHA },
+      { source: gl.ONE, destination: gl.ONE_MINUS_SRC_ALPHA },
+    ]);
+  });
+});
 
 describe("WebGL2 procedural material texture", () => {
   it("anchors deterministic material coverage to document coordinates", () => {

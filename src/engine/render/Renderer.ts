@@ -20,12 +20,16 @@ export type RenderTexture = Readonly<{
   scatter: number;
 }>;
 
+export type RenderComposite = "paint" | "erase";
+
 export type RenderStroke = Readonly<{
   operationId: string;
   /** Interleaved `(x, y, alpha)` vertices forming one triangle strip. */
   mesh: Float32Array;
   color: RenderColor;
   texture: RenderTexture;
+  /** `erase` removes artwork alpha instead of painting material. */
+  composite: RenderComposite;
 }>;
 
 export interface Renderer {

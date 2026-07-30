@@ -106,20 +106,20 @@ export class Canvas2DRenderer implements Renderer {
     );
 
     for (const stroke of this.strokes.values()) {
-      drawStroke(context, stroke, this.texturePattern(stroke));
+      drawStroke(context, stroke, this.strokePattern(stroke));
     }
     if (this.confirmedPreview !== null) {
       drawStroke(
         context,
         this.confirmedPreview,
-        this.texturePattern(this.confirmedPreview),
+        this.strokePattern(this.confirmedPreview),
       );
     }
     if (this.predictedPreview !== null) {
       drawStroke(
         context,
         this.predictedPreview,
-        this.texturePattern(this.predictedPreview),
+        this.strokePattern(this.predictedPreview),
       );
     }
     context.restore();
@@ -134,6 +134,11 @@ export class Canvas2DRenderer implements Renderer {
     this.strokes.clear();
     this.texturePatterns.clear();
     this.clearPreview();
+  }
+
+  /** An erase mark carries no material, so it never takes a texture pattern. */
+  private strokePattern(stroke: RenderStroke): CanvasPattern | null {
+    return stroke.composite === "erase" ? null : this.texturePattern(stroke);
   }
 
   private texturePattern(stroke: RenderStroke): CanvasPattern | null {
@@ -177,9 +182,14 @@ function drawStroke(
     return;
   }
 
+  const erasing = stroke.composite === "erase";
+  context.globalCompositeOperation = erasing
+    ? "destination-out"
+    : "source-over";
   const [red, green, blue, colorAlpha] = stroke.color;
-  context.fillStyle =
-    pattern ?? `rgb(${toByte(red)} ${toByte(green)} ${toByte(blue)})`;
+  context.fillStyle = erasing
+    ? "rgb(0 0 0)"
+    : (pattern ?? `rgb(${toByte(red)} ${toByte(green)} ${toByte(blue)})`);
   for (
     let firstVertex = 0;
     firstVertex + 3 < pairedVertexCount;
@@ -200,6 +210,7 @@ function drawStroke(
     context.closePath();
     context.fill();
   }
+  context.globalCompositeOperation = "source-over";
 }
 
 function segmentAlpha(

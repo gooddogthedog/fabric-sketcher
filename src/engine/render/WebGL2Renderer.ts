@@ -351,7 +351,15 @@ export class WebGL2Renderer implements Renderer {
       this.programState.textureScatterLocation,
       texture.scatter,
     );
+    // Erasing attenuates the destination alpha instead of adding source
+    // colour, which reveals the paper and guide beneath the transparent canvas.
+    if (stroke.composite === "erase") {
+      this.gl.blendFunc(this.gl.ZERO, this.gl.ONE_MINUS_SRC_ALPHA);
+    }
     this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, vertexCount);
+    if (stroke.composite === "erase") {
+      this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+    }
   }
 
   private deleteRetainedBuffers(deleteEvenIfLost = false): void {

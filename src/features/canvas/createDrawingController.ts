@@ -355,6 +355,7 @@ function previewStroke(
     mesh: buildStrokeMesh(samples, brush),
     color: hexColor(brush.color),
     texture: Object.freeze({ ...brush.texture }),
+    composite: "paint",
   };
 }
 
