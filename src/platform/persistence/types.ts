@@ -2,6 +2,8 @@ import type {
   BrushSnapshot,
   DesignDocument,
   DocumentOperation,
+  EraseOperation,
+  EraserSnapshot,
   PenSample,
   StrokeOperation,
 } from "../../domain/document/types";
@@ -75,7 +77,10 @@ export function normalizeDesignDocument(
   const candidate = value;
   if (
     !isRecord(candidate) ||
-    (candidate.schemaVersion !== 1 && candidate.schemaVersion !== 2) ||
+    (candidate.schemaVersion !== 1 &&
+      candidate.schemaVersion !== 2 &&
+      candidate.schemaVersion !== 3) ||
+    (candidate.schemaVersion === 3 && !Array.isArray(candidate.erases)) ||
     candidate.projectId !== expectedProjectId ||
     typeof candidate.title !== "string" ||
     !isPositiveFiniteNumber(candidate.width) ||
@@ -98,7 +103,7 @@ export function normalizeDesignDocument(
       : normalizeFoundationState(candidate.foundation);
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     projectId: candidate.projectId,
     title: candidate.title,
     width: candidate.width,
@@ -110,6 +115,13 @@ export function normalizeDesignDocument(
     strokes: candidate.strokes.map((stroke) =>
       normalizeLegacyPencilStroke(stroke as StrokeOperation),
     ),
+    erases:
+      candidate.schemaVersion === 3
+        ? (candidate.erases as readonly EraseOperation[]).map((erase) => ({
+            ...erase,
+            samples: [...erase.samples],
+          }))
+        : [],
     hiddenStrokeIds: [...candidate.hiddenStrokeIds],
   };
 }
@@ -250,6 +262,31 @@ function isValidStrokeOperation(value: unknown): value is StrokeOperation {
   );
 }
 
+function isEraserSnapshot(value: unknown): value is EraserSnapshot {
+  return (
+    isRecord(value) &&
+    isBrushPresetId(value.tipBrushId) &&
+    isPositiveFiniteNumber(value.size) &&
+    isUnitIntervalFiniteNumber(value.opacity) &&
+    isUnitIntervalFiniteNumber(value.pressureSize) &&
+    isUnitIntervalFiniteNumber(value.pressureOpacity) &&
+    isUnitIntervalFiniteNumber(value.tiltShape)
+  );
+}
+
+function isValidEraseOperation(value: unknown): value is EraseOperation {
+  return (
+    isOperationMetadata(value) &&
+    value.type === "erase.committed" &&
+    typeof value.layerId === "string" &&
+    value.layerId.length > 0 &&
+    isEraserSnapshot(value.eraser) &&
+    Array.isArray(value.samples) &&
+    value.samples.length >= 2 &&
+    value.samples.every(isPenSample)
+  );
+}
+
 function isValidVisibilityOperation(
   value: unknown,
 ): value is DocumentOperation {
@@ -370,11 +407,21 @@ function isCanonicalDocumentHistory(
     }
   }
 
+  const erases = Array.isArray(candidate.erases) ? candidate.erases : [];
+  if (!erases.every(isValidEraseOperation)) {
+    return false;
+  }
+  const eraseIds = erases.map((erase) => erase.operationId);
+  const markIds = [...operationIds, ...eraseIds];
+  if (new Set(markIds).size !== markIds.length) {
+    return false;
+  }
+
   const hiddenStrokeIds = candidate.hiddenStrokeIds;
   if (
     !hiddenStrokeIds.every(
       (operationId): operationId is string =>
-        typeof operationId === "string" && operationIds.includes(operationId),
+        typeof operationId === "string" && markIds.includes(operationId),
     ) ||
     new Set(hiddenStrokeIds).size !== hiddenStrokeIds.length
   ) {

@@ -64,6 +64,19 @@ export type BrushSnapshot = Readonly<{
   texture: BrushTextureSnapshot;
 }>;
 
+/**
+ * The eraser's tip shape. It deliberately carries no colour or texture:
+ * erasing removes artwork alpha rather than painting a material.
+ */
+export type EraserSnapshot = Readonly<{
+  tipBrushId: BrushPresetId;
+  size: number;
+  opacity: number;
+  pressureSize: number;
+  pressureOpacity: number;
+  tiltShape: number;
+}>;
+
 export type StrokeOperation = Readonly<{
   type: "stroke.committed";
   operationId: string;
@@ -75,6 +88,26 @@ export type StrokeOperation = Readonly<{
   samples: readonly PenSample[];
 }>;
 
+export type EraseOperation = Readonly<{
+  type: "erase.committed";
+  operationId: string;
+  projectId: string;
+  layerId: string;
+  sequence: number;
+  committedAt: string;
+  eraser: EraserSnapshot;
+  samples: readonly PenSample[];
+}>;
+
+/** A stroke or an erase. Both are journalled, reversible artwork marks. */
+export type DocumentMark = StrokeOperation | EraseOperation;
+
+/**
+ * Sets the visibility of one artwork mark. `targetOperationId` may name a
+ * stroke or an erase. This operation type and `DesignDocument.hiddenStrokeIds`
+ * keep their original names so existing journals stay readable without
+ * migration.
+ */
 export type StrokeVisibilityOperation = Readonly<{
   type: "stroke.visibility-set";
   operationId: string;
@@ -110,7 +143,7 @@ export type DocumentOperation =
   | DocumentTitleSetOperation;
 
 export type DesignDocument = Readonly<{
-  schemaVersion: 2;
+  schemaVersion: 3;
   projectId: string;
   title: string;
   width: number;
@@ -120,5 +153,6 @@ export type DesignDocument = Readonly<{
   operationSequence: number;
   foundation: FoundationState | null;
   strokes: readonly StrokeOperation[];
+  erases: readonly EraseOperation[];
   hiddenStrokeIds: readonly string[];
 }>;

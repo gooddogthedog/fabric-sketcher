@@ -10,7 +10,7 @@ export function createDocument({
   title,
 }: CreateDocumentParameters): DesignDocument {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     projectId,
     title,
     width: 2480,
@@ -20,6 +20,7 @@ export function createDocument({
     operationSequence: 0,
     foundation: null,
     strokes: [],
+    erases: [],
     hiddenStrokeIds: [],
   };
 }

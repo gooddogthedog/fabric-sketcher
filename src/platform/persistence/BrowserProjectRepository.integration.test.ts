@@ -562,7 +562,8 @@ describe("BrowserProjectRepository IndexedDB integration", () => {
 
       expect(recovered).toEqual(
         expect.objectContaining({
-          schemaVersion: 2,
+          schemaVersion: 3,
+          erases: [],
           foundation: expect.objectContaining({
             assetId: "neutral-figure-front",
             assetVersion: 1,
