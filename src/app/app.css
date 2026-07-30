@@ -1164,14 +1164,22 @@ canvas:focus-visible {
   stroke-width: 3;
 }
 
+.quick-tool-puck__spokes {
+  position: absolute;
+  inset: 0;
+  fill: none;
+  stroke: var(--color-line);
+  stroke-width: 1;
+}
+
 .quick-tool-puck__hub {
   display: grid;
   position: absolute;
   inset-block-start: 50%;
   inset-inline-start: 50%;
   place-items: center;
-  inline-size: 76px;
-  block-size: 76px;
+  inline-size: 86px;
+  block-size: 86px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: var(--color-ink);

@@ -118,3 +118,24 @@ describe("QuickToolPuck", () => {
     expect(puck.style.getPropertyValue("--puck-offset-x")).toBe("0px");
   });
 });
+
+describe("QuickToolPuck hub", () => {
+  it("carries the chosen colour with a legible icon on light and dark", () => {
+    const store = createStore();
+    const { container, rerender } = render(
+      <QuickToolPuck onOpenBrushes={vi.fn()} store={store} />,
+    );
+    const hub = () =>
+      container.querySelector(".quick-tool-puck__hub") as HTMLElement;
+
+    store.setBrushColor("#1a1a1a");
+    rerender(<QuickToolPuck onOpenBrushes={vi.fn()} store={store} />);
+    expect(hub().style.backgroundColor).toBe("rgb(26, 26, 26)");
+    expect(hub().style.color).toBe("rgb(251, 250, 248)");
+
+    store.setBrushColor("#f2e6a0");
+    rerender(<QuickToolPuck onOpenBrushes={vi.fn()} store={store} />);
+    expect(hub().style.backgroundColor).toBe("rgb(242, 230, 160)");
+    expect(hub().style.color).toBe("rgb(38, 36, 33)");
+  });
+});

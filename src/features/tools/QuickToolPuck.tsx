@@ -15,12 +15,17 @@ type Drag = Readonly<{
   originY: number;
   startX: number;
   startY: number;
+  /** Travel available before the dial would leave the workspace. */
+  minDeltaX: number;
+  maxDeltaX: number;
+  minDeltaY: number;
+  maxDeltaY: number;
 }>;
 
-/** Keeps the dial within reach of the drawing hand on either side. */
-const MAX_OFFSET = 320;
 /** Distance from the hub centre to each slot centre. */
 const SLOT_RADIUS = 64;
+/** Wedge boundaries, halfway between neighbouring slots. */
+const SPOKE_ANGLES = [30, 90, 150, 210, 270, 330];
 /** Degrees clockwise from the top of the dial. */
 const BRUSH_ANGLE = 0;
 const ERASER_ANGLE = 60;
@@ -33,6 +38,7 @@ export function QuickToolPuck({ store, onOpenBrushes }: QuickToolPuckProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
   const dragRef = useRef<Drag | null>(null);
+  const puckRef = useRef<HTMLDivElement>(null);
 
   const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     dragRef.current = {
@@ -41,6 +47,7 @@ export function QuickToolPuck({ store, onOpenBrushes }: QuickToolPuckProps) {
       originY: event.clientY,
       startX: offset.x,
       startY: offset.y,
+      ...travelBounds(puckRef.current),
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -51,8 +58,12 @@ export function QuickToolPuck({ store, onOpenBrushes }: QuickToolPuckProps) {
       return;
     }
     setOffset({
-      x: clamp(drag.startX + event.clientX - drag.originX),
-      y: clamp(drag.startY + event.clientY - drag.originY),
+      x:
+        drag.startX +
+        clamp(event.clientX - drag.originX, drag.minDeltaX, drag.maxDeltaX),
+      y:
+        drag.startY +
+        clamp(event.clientY - drag.originY, drag.minDeltaY, drag.maxDeltaY),
     });
   };
 
@@ -68,6 +79,7 @@ export function QuickToolPuck({ store, onOpenBrushes }: QuickToolPuckProps) {
     <div
       aria-label="Quick tools"
       className="quick-tool-puck"
+      ref={puckRef}
       role="toolbar"
       style={
         {
@@ -89,7 +101,32 @@ export function QuickToolPuck({ store, onOpenBrushes }: QuickToolPuckProps) {
           transform={`rotate(${activeAngle - 120} 104 104)`}
         />
       </svg>
-      <span aria-hidden="true" className="quick-tool-puck__hub">
+      <svg
+        aria-hidden="true"
+        className="quick-tool-puck__spokes"
+        viewBox="0 0 208 208"
+      >
+        {SPOKE_ANGLES.map((angle) => {
+          const radians = (angle * Math.PI) / 180;
+          return (
+            <line
+              key={angle}
+              x1={round(104 + Math.sin(radians) * 45)}
+              x2={round(104 + Math.sin(radians) * 103)}
+              y1={round(104 - Math.cos(radians) * 45)}
+              y2={round(104 - Math.cos(radians) * 103)}
+            />
+          );
+        })}
+      </svg>
+      <span
+        aria-hidden="true"
+        className="quick-tool-puck__hub"
+        style={{
+          backgroundColor: snapshot.brush.color,
+          color: readableInk(snapshot.brush.color),
+        }}
+      >
         {snapshot.tool === "eraser" ? <EraserIcon /> : <BrushIcon />}
       </span>
       <button
@@ -174,8 +211,66 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-function clamp(value: number): number {
-  return Math.min(MAX_OFFSET, Math.max(-MAX_OFFSET, value));
+/**
+ * The hub carries the chosen colour, so its icon has to survive both a near
+ * black graphite and a pale wash. Uses relative luminance, not a hue guess.
+ */
+function readableInk(color: string): string {
+  const channels = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color);
+  if (!channels) {
+    return "#fbfaf8";
+  }
+  const [red, green, blue] = channels
+    .slice(1)
+    .map((channel) => Number.parseInt(channel, 16) / 255)
+    .map((channel) =>
+      channel <= 0.04045
+        ? channel / 12.92
+        : Math.pow((channel + 0.055) / 1.055, 2.4),
+    ) as [number, number, number];
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return luminance > 0.45 ? "#262421" : "#fbfaf8";
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+/**
+ * The dial may be dragged anywhere in the workspace, stopping only where it
+ * would leave it. Falls back to unbounded travel when layout is unavailable,
+ * as in a test environment without a layout engine.
+ */
+function travelBounds(
+  puck: HTMLDivElement | null,
+): Pick<Drag, "minDeltaX" | "maxDeltaX" | "minDeltaY" | "maxDeltaY"> {
+  const parent = puck?.offsetParent;
+  if (!puck || !(parent instanceof HTMLElement)) {
+    return {
+      minDeltaX: -Infinity,
+      maxDeltaX: Infinity,
+      minDeltaY: -Infinity,
+      maxDeltaY: Infinity,
+    };
+  }
+
+  const dial = puck.getBoundingClientRect();
+  const workspace = parent.getBoundingClientRect();
+  if (dial.width === 0 || workspace.width === 0) {
+    return {
+      minDeltaX: -Infinity,
+      maxDeltaX: Infinity,
+      minDeltaY: -Infinity,
+      maxDeltaY: Infinity,
+    };
+  }
+
+  return {
+    minDeltaX: workspace.left - dial.left,
+    maxDeltaX: workspace.right - dial.right,
+    minDeltaY: workspace.top - dial.top,
+    maxDeltaY: workspace.bottom - dial.bottom,
+  };
 }
 
 function BrushIcon() {
