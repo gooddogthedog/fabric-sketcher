@@ -322,3 +322,25 @@ describe("LayersShelf", () => {
     },
   );
 });
+
+describe("LayersShelf range release", () => {
+  it("commits a dragged range when the pointer is released off the thumb", async () => {
+    const { repository, store } = await storeWithFigure();
+    render(<LayersShelf onOpenChange={vi.fn()} open store={store} />);
+    repository.appendOperation.mockClear();
+
+    const opacity = screen.getByRole("slider", { name: "Foundation opacity" });
+    fireEvent.change(opacity, { target: { value: "0.55" } });
+    // No pointerup on the input: the drag ended elsewhere on the page.
+    fireEvent.lostPointerCapture(opacity, { pointerId: 1 });
+
+    await waitFor(() => {
+      expect(repository.appendOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "foundation.set",
+          foundation: expect.objectContaining({ opacity: 0.55 }),
+        }),
+      );
+    });
+  });
+});

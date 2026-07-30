@@ -65,6 +65,11 @@ export function LayersShelf({
   const pendingRangeRef = useRef<PendingRange | null>(null);
   const previousOpenRef = useRef(open);
 
+  /**
+   * Escape and canvas contact are dismissals, so a range still pending at that
+   * point is abandoned. This only stays correct while releasing the thumb
+   * reliably commits — see the release handlers on RangeControl's input.
+   */
   useEffect(() => {
     const wasOpen = previousOpenRef.current;
     previousOpenRef.current = open;
@@ -508,6 +513,14 @@ function RangeControl({
         <span>{displayLabel}</span>
         <output>{output}</output>
       </span>
+      {/*
+        A slider drag is usually released away from the thumb, so pointerup
+        lands on whatever is under the cursor and never reaches this input.
+        lostpointercapture is the signal that always fires on the input when a
+        drag ends, wherever the pointer went; pointercancel covers an
+        interrupted contact. Without them the value stays pending and a
+        dismissal throws it away.
+      */}
       <input
         aria-label={label}
         max={max}
@@ -515,6 +528,8 @@ function RangeControl({
         onBlur={onCommit}
         onChange={(event) => onChange(event.currentTarget.valueAsNumber)}
         onKeyUp={onCommit}
+        onLostPointerCapture={onCommit}
+        onPointerCancel={onCommit}
         onPointerUp={onCommit}
         step={step}
         type="range"
